@@ -383,6 +383,63 @@ scripts/install_lean.sh         ~40 строк — lean-checker Docker
 
 ---
 
+## Clean-room test — результаты
+
+**Дата**: 2026-04-14
+**Условия**: свежий `python:3.12-slim` Docker-контейнер, zero pre-installed tooling, сеть через `--network host` для доступа к Yandex AI Studio.
+
+**Сценарий** (полный, воспроизводимый через [scripts/clean_room_test.sh](../scripts/clean_room_test.sh)):
+
+1. `apt-get install -y git curl bzip2 tar libgomp1` — системные зависимости
+2. `git clone` из смонтированного локального репо (симулирует `git clone https://github.com/andkhalov/AI4Math.git`)
+3. Pre-populate `.env` через env vars (симулирует заполнение wizard'ом)
+4. `./setup.sh` — ставит venv, pip deps, Goose 1.30.0 в `.tools/`, создаёт symlink в `~/.local/bin/`
+5. `./bin/ai4math doctor` — проверка окружения
+6. `./bin/ai4math run "Create hello.py with fibonacci..."` — реальный tool call через Yandex endpoint
+
+**Результат**: **PASS** (после одной баг-фикс итерации).
+
+### Обнаруженный баг
+
+**Симптом**: `setup.sh` падал на установке Goose с `libgomp.so.1: cannot open shared object file`.
+
+**Причина**: Goose распространяется как статический Rust-бинарь, но линкуется с libgomp (OpenMP runtime) динамически. На slim-образах (python:3.12-slim, debian:bookworm-slim) эта библиотека отсутствует.
+
+**Фикс**: [setup.sh:34-58](../setup.sh#L34-L58) теперь делает pre-flight check на все системные зависимости (python3, curl, git, tar, bzip2, libgomp1) и печатает OS-специфичные install hints (apt/dnf/brew) если чего-то нет, не пытаясь чинить это за пользователя. README обновлён.
+
+Коммит: `125f9f6 fix: add libgomp1 + other system deps check to setup.sh`.
+
+### Полный timing
+
+| Шаг | Время |
+|---|---|
+| apt-get install (5 пакетов) | ~15 с |
+| git clone (16 файлов, ~50 KB) | <1 с |
+| setup.sh (venv + pip + Goose) | ~25 с |
+| ai4math doctor | <1 с |
+| ai4math run (Task A) | ~10 с |
+| **Итого от clone до работающего агента** | **~40 секунд** |
+
+Если у студента уже есть apt-зависимости — `git clone` + `./setup.sh` занимает **~26 секунд**. Это укладывается в целевое «5 минут» из CLAUDE.md с большим запасом.
+
+### Что НЕ покрыто clean-room тестом
+
+- **cli/wizard.py** — не тестировался интерактивно (pre-populate `.env`). Требует ручной проверки или expect-скрипта.
+- **Lean установка** — `./setup.sh --with-lean` не запускался (1.5-2.5 часа сборки Mathlib). Lean верификация протестирована отдельно в Phase 4 на dev-машине.
+- **macOS** — тест только на Linux. На macOS libgomp приходит с gcc через Homebrew, нужна отдельная проверка.
+- **Non-Yandex сеть** — тест использует реальный Yandex endpoint. Если endpoint недоступен, setup.sh пройдёт, но `ai4math run` упадёт. Wizard должен такое ловить с более понятным сообщением — TODO для Stage 2.
+
+### Повторный запуск
+
+```bash
+# Из корня репо
+./scripts/clean_room_test.sh
+```
+
+Требует: docker, заполненный `.env` для API-ключа.
+
+---
+
 ## Благодарности
 
 - **andkhalov/lean-checker** за готовый Docker-сервис, который сэкономил дни работы над Lean установкой.
