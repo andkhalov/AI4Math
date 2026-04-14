@@ -19,27 +19,31 @@ say()  { echo -e "${GREEN}[AI4Math]${RESET} $*"; }
 warn() { echo -e "${YELLOW}[AI4Math]${RESET} $*"; }
 die()  { echo -e "${RED}[AI4Math]${RESET} $*" >&2; exit 1; }
 
-WITH_LEAN=0
+WITH_LEAN_LOCAL=0
 for arg in "$@"; do
     case "$arg" in
-        --with-lean) WITH_LEAN=1 ;;
+        --with-lean-local|--with-lean) WITH_LEAN_LOCAL=1 ;;
         -h|--help)
             cat <<EOF
 AI4Math setup.
 
 Usage:
-  ./setup.sh                установка без Lean (Docker не требуется)
-  ./setup.sh --with-lean    + попытка поднять lean-checker (требует Docker)
+  ./setup.sh                     установка с remote Lean checker (default)
+                                 — ничего локально поднимать не надо
+  ./setup.sh --with-lean-local   + поднять локальный Docker lean-checker
+                                 (Mathlib 4.24, первая сборка 1.5-2.5 ч)
 
 Шаги:
-  1. Проверка Python 3.10+
-  2. Создание .venv и установка зависимостей из requirements.txt
+  1. Проверка Python 3.10+ и системных зависимостей
+  2. Создание .venv и установка Python-пакетов из requirements.txt
   3. Установка Goose CLI в .tools/ (локально, без root)
-  4. Запуск cli/wizard.py для настройки .env
+  4. Запуск cli/wizard.py для настройки .env (если .env ещё нет)
   5. (опционально) docker compose up -d в vendor/lean-checker
+  6. symlink в \$HOME/.local/bin/ai4math для глобальной команды
 
-После установки команда доступна как ./bin/ai4math. При желании
-symlink в \$HOME/.local/bin/ai4math для запуска из любого места.
+По умолчанию Lean верификация идёт через публичный SciLib-GRC21
+endpoint (https://scilib.tailb97193.ts.net/grag) — работает сразу,
+Docker не нужен.
 EOF
             exit 0
             ;;
@@ -112,12 +116,13 @@ else
     .venv/bin/python cli/wizard.py
 fi
 
-# --- 5) Optional Lean ---
-if [ "$WITH_LEAN" = "1" ]; then
-    say "Поднимаю lean-checker (Docker) ..."
+# --- 5) Optional local Lean ---
+if [ "$WITH_LEAN_LOCAL" = "1" ]; then
+    say "Поднимаю локальный lean-checker (Docker) ..."
     bash scripts/install_lean.sh || warn "lean-checker не поднялся. Детали выше."
 else
-    warn "Lean не устанавливался. Чтобы добавить позже: ./scripts/install_lean.sh"
+    warn "Локальный Lean checker не устанавливался (используется remote SciLib)."
+    warn "Чтобы добавить позже: ./scripts/install_lean.sh"
 fi
 
 # --- 6) symlink helper ---

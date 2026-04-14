@@ -265,7 +265,13 @@ def create_symlink() -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="AI4Math cross-platform setup", add_help=True)
-    ap.add_argument("--with-lean", action="store_true", help="Также поднять lean-checker Docker контейнер")
+    ap.add_argument(
+        "--with-lean-local",
+        dest="with_lean_local",
+        action="store_true",
+        help="Поднять локальный Docker lean-checker (по умолчанию используется remote SciLib)",
+    )
+    ap.add_argument("--with-lean", dest="with_lean_local", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     say(f"=== AI4Math setup ({sys.platform}) ===")
@@ -274,10 +280,11 @@ def main() -> int:
     venv_py = setup_venv()
     install_goose()
     run_wizard(venv_py)
-    if args.with_lean:
+    if args.with_lean_local:
         install_lean()
     else:
-        warn("Lean не устанавливался. Чтобы добавить позже: ./scripts/install_lean.sh (Linux/macOS/WSL)")
+        warn("Локальный Lean checker не устанавливался (используется remote SciLib).")
+        warn("Чтобы добавить позже: ./scripts/install_lean.sh (Linux/macOS/WSL)")
     create_symlink()
 
     print()

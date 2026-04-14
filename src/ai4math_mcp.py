@@ -1,42 +1,55 @@
-"""AI4Math unified MCP server.
+"""AI4Math unified MCP server — единый stdio-процесс со всеми инструментами.
 
-Consolidates everything previously split across 4 servers (lean_mcp,
-lean_search_mcp, web_search_mcp, pdf_mcp) into one stdio process. This
-simplifies the recipe to a single stdio extension and saves ~150 MB RSS
-+ 1 second of startup time.
-
-Tools (namespace in Goose: `ai4math__*`):
+Tools (Goose namespace: `ai4math`):
 
   Lean verification
-    lean_check(code, import_line)       compile Lean 4 code via lean-checker
-    lean_health()                        ping the lean-checker service
+    lean_check(code)                 verify Lean 4 code via SciLib /check
+    lean_health()                    ping the Lean checker service
 
   Mathlib search (4 engines)
-    lean_search_engines()                health-check of all 4 + comparison
-    lean_search_loogle(query)            type/pattern search (Loogle)
-    lean_search_leansearch(query, n)     semantic with informal descriptions
-    lean_search_moogle(query)            neural, best-effort
-    lean_search_scilib(lean_code, n)     SciLib GraphRAG premise retrieval
+    lean_search_engines()            health-check of all 4 + comparison
+    lean_search_loogle(query)        type/pattern search (Loogle)
+    lean_search_leansearch(query, n) semantic with informal descriptions
+    lean_search_moogle(query)        neural, best-effort
+    lean_search_scilib(lean_code, n) SciLib GraphRAG premise retrieval
 
   Web
-    web_search(query, n)                 Brave (if API key) or DuckDuckGo
-    web_fetch(url, max_chars)            GET + HTML→text + truncate
+    web_search(query, n)             Brave (if API key) or DuckDuckGo
+    web_fetch(url, max_chars)        GET + HTML→text + truncate
 
   PDF
-    pdf_info(path)                       metadata, pages, size
-    pdf_read(path, pages, max_chars)     extract text from page range
-    pdf_search(path, query, context)     substring search with context
+    pdf_info(path)                   metadata, pages, size
+    pdf_read(path, pages, max_chars) extract text from page range
+    pdf_search(path, query, context) substring search with context
 
-Env (all optional):
-  LEAN_CHECKER_URL  http://localhost:8888
-  SCILIB_GRAG_URL   https://scilib.tailb97193.ts.net/grag
+## Lean checker schemas
+
+`lean_check` supports **two** backends automatically, selected by inspecting
+LEAN_CHECKER_URL:
+
+1. **SciLib-GRC21** (default, remote). URL ends with `/grag`:
+     POST {URL}/check  body: {"lean_code": str, "timeout": int}
+     response: {"success": bool, "error_class": str, "error_message": str,
+                "sanity_ok": bool, "sanity_reason": str, "time_ms": int}
+   Pre-rejects sorry-only proofs, bare imports, natural language.
+
+2. **andkhalov/lean-checker** (optional, local Docker). Simple root URL:
+     POST {URL}/check  body: {"code": str, "import_line": str}
+     response: {"ok": bool, "messages": [{"line", "column", "message", ...}]}
+
+The tool routes automatically: URL containing `/grag` → new schema, else old.
+
+## Env (all optional, sensible defaults)
+
+  LEAN_CHECKER_URL  https://scilib.tailb97193.ts.net/grag   (default)
+                    http://localhost:8888                    (local Docker option)
   LEANSEARCH_URL    https://leansearch.net
   LOOGLE_URL        https://loogle.lean-lang.org
   MOOGLE_URL        https://www.moogle.ai
-  BRAVE_API_KEY     (optional, enables Brave Search API instead of DDG)
+  BRAVE_API_KEY     optional, enables Brave Search API instead of DuckDuckGo
 
-  AI4MATH_LEAN_DISABLED=1  — disable lean_check/lean_health
-  AI4MATH_WEB_DISABLED=1   — disable web_search/web_fetch
+  AI4MATH_LEAN_DISABLED=1  disable lean_check/lean_health
+  AI4MATH_WEB_DISABLED=1   disable web_search/web_fetch
 """
 from __future__ import annotations
 
@@ -54,8 +67,17 @@ mcp = FastMCP("ai4math")
 
 # ---------- config ----------
 
-LEAN_CHECKER_URL = os.environ.get("LEAN_CHECKER_URL", "http://localhost:8888").rstrip("/")
+LEAN_CHECKER_URL = os.environ.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag").rstrip("/")
 SCILIB = os.environ.get("SCILIB_GRAG_URL", "https://scilib.tailb97193.ts.net/grag").rstrip("/")
+
+# Schema routing: URLs containing `/grag` use the SciLib schema; everything
+# else uses the legacy andkhalov/lean-checker schema. Override explicitly
+# with AI4MATH_LEAN_SCHEMA=scilib|lean-checker if needed.
+_forced_schema = os.environ.get("AI4MATH_LEAN_SCHEMA")
+if _forced_schema in ("scilib", "lean-checker"):
+    LEAN_SCHEMA = _forced_schema
+else:
+    LEAN_SCHEMA = "scilib" if "/grag" in LEAN_CHECKER_URL else "lean-checker"
 LEANSEARCH = os.environ.get("LEANSEARCH_URL", "https://leansearch.net").rstrip("/")
 LOOGLE = os.environ.get("LOOGLE_URL", "https://loogle.lean-lang.org").rstrip("/")
 MOOGLE = os.environ.get("MOOGLE_URL", "https://www.moogle.ai").rstrip("/")
@@ -80,14 +102,33 @@ def _truncate(s: str | None, n: int = CHARS_PER_HIT) -> str:
 
 
 # ========================================================================
-# Lean verification
+# Lean verification (SciLib /check primary, legacy lean-checker fallback)
 # ========================================================================
 
-def _lean_format_ok() -> str:
+def _lean_format_ok_scilib(data: dict) -> str:
+    time_ms = data.get("time_ms") or data.get("processing_time_ms") or 0
+    return f"OK: Lean 4 code compiles (Mathlib imported, {time_ms} ms)."
+
+
+def _lean_format_err_scilib(data: dict) -> str:
+    if not data.get("sanity_ok", True):
+        reason = data.get("sanity_reason", "unknown")
+        return (
+            f"ERROR [SANITY_CHECK_FAILED]: {reason}\n"
+            "Note: Lean checker rejects sorry-only proofs, bare imports, "
+            "comment-only or natural-language submissions. Provide a real "
+            "Lean 4 term or tactic block."
+        )
+    cls = data.get("error_class") or "ERROR"
+    msg = (data.get("error_message") or "").strip()
+    return f"ERROR [{cls}]: {msg[:1500]}"
+
+
+def _lean_format_ok_legacy() -> str:
     return "OK: Lean 4 code compiles successfully (Mathlib imported)."
 
 
-def _lean_format_errors(payload: dict) -> str:
+def _lean_format_err_legacy(payload: dict) -> str:
     msgs = payload.get("messages") or []
     if not msgs:
         stderr = (payload.get("stderr") or "").strip()
@@ -105,48 +146,74 @@ def _lean_format_errors(payload: dict) -> str:
 
 
 @mcp.tool()
-def lean_check(code: str, import_line: str = "import Mathlib") -> str:
-    """Type-check and compile Lean 4 code against Mathlib (v4.24).
+def lean_check(code: str, timeout: int = 60) -> str:
+    """Type-check and compile Lean 4 code against Mathlib.
 
-    Pass a Lean 4 source snippet as `code`. Mathlib is automatically imported
-    unless the code already contains an `import` statement. Returns either
-    'OK: ...' on successful compilation, or a human-readable error report
-    with line/column coordinates for each diagnostic.
+    Pass a Lean 4 source snippet as `code`. Mathlib is available; do not
+    submit `sorry`-only proofs, bare imports, or natural language — the
+    checker's sanity filter will reject them. Typical pattern:
 
-    Example:
         lean_check("example : 1 + 1 = 2 := by norm_num")
+
+    Backend is auto-detected from LEAN_CHECKER_URL:
+      * URL contains `/grag` → SciLib /check schema (default remote endpoint)
+      * otherwise            → legacy andkhalov/lean-checker schema (local Docker)
+
+    Returns `OK: ...` on success or a structured error describing the
+    failure class (TACTIC_FAILURE, PARSE_ERROR, GOAL_NOT_CLOSED, TIMEOUT,
+    SANITY_CHECK_FAILED for SciLib; line/column diagnostics for legacy).
     """
     if LEAN_DISABLED:
         return "ERROR: lean_check is disabled via AI4MATH_LEAN_DISABLED."
+
+    # Build request + URL per schema
+    if LEAN_SCHEMA == "scilib":
+        url = f"{LEAN_CHECKER_URL}/check"
+        body = {"lean_code": code, "timeout": max(5, min(120, int(timeout)))}
+    else:
+        url = f"{LEAN_CHECKER_URL}/check"
+        body = {"code": code, "import_line": "import Mathlib"}
+
     try:
-        resp = requests.post(
-            f"{LEAN_CHECKER_URL}/check",
-            json={"code": code, "import_line": import_line},
-            timeout=120,
-        )
+        resp = requests.post(url, json=body, timeout=max(timeout + 10, 30))
     except requests.ConnectionError:
-        return (
-            f"ERROR: cannot reach lean-checker at {LEAN_CHECKER_URL}. "
-            "Is the docker container running? "
-            "Start it with: cd vendor/lean-checker && docker compose up -d"
+        hint = (
+            "Default remote endpoint: https://scilib.tailb97193.ts.net/grag — "
+            "проверь сеть. Для локального варианта: ./setup.sh --with-lean-local"
+            if LEAN_SCHEMA == "scilib"
+            else "Local lean-checker: cd vendor/lean-checker && docker compose up -d"
         )
+        return f"ERROR: cannot reach Lean checker at {LEAN_CHECKER_URL}. {hint}"
     except requests.Timeout:
-        return "ERROR: lean-checker timed out after 120 s."
+        return f"ERROR: Lean checker timed out after {timeout} s."
+
     if resp.status_code != 200:
-        return f"ERROR: lean-checker HTTP {resp.status_code}: {resp.text[:500]}"
-    data = resp.json()
-    return _lean_format_ok() if data.get("ok") else _lean_format_errors(data)
+        return f"ERROR: Lean checker HTTP {resp.status_code}: {resp.text[:500]}"
+
+    try:
+        data = resp.json()
+    except ValueError:
+        return f"ERROR: Lean checker returned non-JSON: {resp.text[:300]}"
+
+    if LEAN_SCHEMA == "scilib":
+        return _lean_format_ok_scilib(data) if data.get("success") else _lean_format_err_scilib(data)
+    else:
+        return _lean_format_ok_legacy() if data.get("ok") else _lean_format_err_legacy(data)
 
 
 @mcp.tool()
 def lean_health() -> str:
-    """Check that the lean-checker service is up and Lean/Mathlib are working."""
+    """Check that the Lean checker service is up.
+
+    Pings `{LEAN_CHECKER_URL}/health` and reports the version of the backend
+    (SciLib remote or local lean-checker).
+    """
     if LEAN_DISABLED:
-        return "lean-checker: disabled via AI4MATH_LEAN_DISABLED"
+        return "Lean checker: disabled via AI4MATH_LEAN_DISABLED"
     try:
         resp = requests.get(f"{LEAN_CHECKER_URL}/health", timeout=10)
         resp.raise_for_status()
-        return f"lean-checker: {resp.json()}"
+        return f"Lean checker ({LEAN_SCHEMA} @ {LEAN_CHECKER_URL}): {resp.json()}"
     except Exception as e:
         return f"ERROR: lean-checker health check failed: {type(e).__name__}: {e}"
 

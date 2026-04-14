@@ -1,0 +1,166 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux — clean-room install + Task A
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git curl bzip2 tar libgomp1 python3-venv
+
+      - name: Write .env from secrets
+        env:
+          YANDEX_AI_API: ${{ secrets.YANDEX_AI_API }}
+          YANDEX_CLOUD_FOLDER: ${{ secrets.YANDEX_CLOUD_FOLDER }}
+        run: |
+          cat > .env <<ENV
+          YANDEX_AI_API=$YANDEX_AI_API
+          YANDEX_CLOUD_FOLDER=$YANDEX_CLOUD_FOLDER
+          YANDEX_QWEN=qwen3-235b-a22b-fp8/latest
+          YANDEX_DEEPSEEK=deepseek-v32/latest
+          YANDEX_GPTOOS=gpt-oss-120b/latest
+          AI4MATH_MODEL=qwen
+          LEAN_CHECKER_URL=https://scilib.tailb97193.ts.net/grag
+          ENV
+
+      - name: Run setup.sh
+        run: ./setup.sh
+
+      - name: ai4math doctor
+        run: ./bin/ai4math doctor
+
+      - name: ai4math run — Task A (fibonacci)
+        env:
+          AI4MATH_QUIET: "1"
+          AI4MATH_NOCOLOR: "1"
+        run: |
+          mkdir -p /tmp/taskA && cd /tmp/taskA
+          $GITHUB_WORKSPACE/bin/ai4math run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
+          test -f hello.py
+          ACTUAL=$(python3 hello.py)
+          EXPECTED=$'0\n1\n1\n2\n3\n5\n8\n13\n21\n34'
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: output mismatch"
+            echo "actual: $ACTUAL"
+            echo "expected: $EXPECTED"
+            exit 1
+          fi
+          echo "PASS"
+
+  macos:
+    name: macOS — setup + Task A
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Write .env from secrets
+        env:
+          YANDEX_AI_API: ${{ secrets.YANDEX_AI_API }}
+          YANDEX_CLOUD_FOLDER: ${{ secrets.YANDEX_CLOUD_FOLDER }}
+        run: |
+          cat > .env <<ENV
+          YANDEX_AI_API=$YANDEX_AI_API
+          YANDEX_CLOUD_FOLDER=$YANDEX_CLOUD_FOLDER
+          YANDEX_QWEN=qwen3-235b-a22b-fp8/latest
+          YANDEX_DEEPSEEK=deepseek-v32/latest
+          YANDEX_GPTOOS=gpt-oss-120b/latest
+          AI4MATH_MODEL=qwen
+          LEAN_CHECKER_URL=https://scilib.tailb97193.ts.net/grag
+          ENV
+
+      - name: Run setup.sh
+        run: ./setup.sh
+
+      - name: ai4math doctor
+        run: ./bin/ai4math doctor
+
+      - name: ai4math run — Task A (fibonacci)
+        env:
+          AI4MATH_QUIET: "1"
+          AI4MATH_NOCOLOR: "1"
+        run: |
+          mkdir -p /tmp/taskA && cd /tmp/taskA
+          $GITHUB_WORKSPACE/bin/ai4math run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
+          test -f hello.py
+          ACTUAL=$(python3 hello.py)
+          EXPECTED=$'0\n1\n1\n2\n3\n5\n8\n13\n21\n34'
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: output mismatch"
+            echo "actual: $ACTUAL"
+            echo "expected: $EXPECTED"
+            exit 1
+          fi
+          echo "PASS"
+
+  windows:
+    name: Windows — setup.bat + Task A
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Write .env from secrets
+        env:
+          YANDEX_AI_API: ${{ secrets.YANDEX_AI_API }}
+          YANDEX_CLOUD_FOLDER: ${{ secrets.YANDEX_CLOUD_FOLDER }}
+        shell: pwsh
+        run: |
+          @"
+          YANDEX_AI_API=$env:YANDEX_AI_API
+          YANDEX_CLOUD_FOLDER=$env:YANDEX_CLOUD_FOLDER
+          YANDEX_QWEN=qwen3-235b-a22b-fp8/latest
+          YANDEX_DEEPSEEK=deepseek-v32/latest
+          YANDEX_GPTOOS=gpt-oss-120b/latest
+          AI4MATH_MODEL=qwen
+          LEAN_CHECKER_URL=https://scilib.tailb97193.ts.net/grag
+          "@ | Out-File -Encoding ASCII .env
+
+      - name: Run setup.py
+        shell: pwsh
+        run: python setup.py
+
+      - name: ai4math doctor
+        shell: pwsh
+        run: python bin\ai4math.py doctor
+
+      - name: ai4math run — Task A (fibonacci)
+        shell: pwsh
+        env:
+          AI4MATH_QUIET: "1"
+          AI4MATH_NOCOLOR: "1"
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\taskA | Out-Null
+          Set-Location C:\taskA
+          python $env:GITHUB_WORKSPACE\bin\ai4math.py run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
+          if (-not (Test-Path hello.py)) { throw "hello.py missing" }
+          $actual = (python hello.py | Out-String).Trim()
+          $expected = "0`n1`n1`n2`n3`n5`n8`n13`n21`n34"
+          if ($actual -ne $expected) {
+            Write-Host "FAIL: output mismatch"
+            Write-Host "actual: $actual"
+            Write-Host "expected: $expected"
+            throw "mismatch"
+          }
+          Write-Host "PASS"

@@ -118,7 +118,10 @@ def main() -> int:
 
     # Lean checker URL
     print()
-    lean_url = ask("LEAN_CHECKER_URL", default="http://localhost:8888")
+    print("  Lean checker: по умолчанию используется публичный SciLib-GRC21 —")
+    print("  ничего поднимать локально не нужно. Для offline режима укажи")
+    print("  http://localhost:8888 и позже запусти ./setup.sh --with-lean-local.")
+    lean_url = ask("LEAN_CHECKER_URL", default="https://scilib.tailb97193.ts.net/grag")
 
     # Запись
     lines = [
