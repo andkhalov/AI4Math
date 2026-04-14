@@ -167,7 +167,8 @@ def install_goose() -> Path:
     tools_dir.mkdir(parents=True, exist_ok=True)
     asset = _goose_asset_name()
     url = f"https://github.com/aaif-goose/goose/releases/download/stable/{asset}"
-    say(f"Скачиваю Goose: {asset} ...")
+    say(f"Скачиваю Goose: {asset}")
+    say(f"  URL: {url}")
 
     with tempfile.TemporaryDirectory(prefix="ai4math-goose-") as td:
         td_path = Path(td)
@@ -176,6 +177,7 @@ def install_goose() -> Path:
             urllib.request.urlretrieve(url, archive)
         except Exception as e:
             die(f"Не удалось скачать Goose: {e}")
+        say(f"  downloaded: {archive.stat().st_size} bytes")
 
         say("Распаковываю ...")
         if asset.endswith(".tar.bz2"):
@@ -184,36 +186,48 @@ def install_goose() -> Path:
                 tf.extractall(td_path)
             src = td_path / "goose"
             if not src.exists():
-                # Some releases put binary in a subdirectory
                 for p in td_path.rglob("goose"):
                     if p.is_file():
                         src = p
                         break
+            if not src.exists():
+                die(f"Не нашёл goose binary в архиве (contents: {[p.name for p in td_path.rglob('*') if p.is_file()][:20]})")
             shutil.move(str(src), str(goose_exe))
             goose_exe.chmod(0o755)
         elif asset.endswith(".zip"):
             import zipfile
             with zipfile.ZipFile(archive) as zf:
                 zf.extractall(td_path)
-            # Windows: might be nested in goose-package/
-            src = td_path / "goose.exe"
-            if not src.exists():
-                for p in td_path.rglob("goose.exe"):
-                    src = p
-                    break
-            if not src.exists():
-                die(f"Не нашёл goose.exe в распакованном архиве")
+            # Windows archive may be nested in goose-package/
+            all_files = sorted(p for p in td_path.rglob("*") if p.is_file())
+            say(f"  zip contents: {[p.relative_to(td_path).as_posix() for p in all_files[:20]]}")
+            candidates = [p for p in all_files if p.name.lower() == "goose.exe"]
+            if not candidates:
+                die(f"Не нашёл goose.exe в распакованном архиве. Files: {[p.name for p in all_files]}")
+            src = candidates[0]
+            say(f"  goose.exe found at: {src.relative_to(td_path)}")
             shutil.move(str(src), str(goose_exe))
             # Copy any bundled DLLs next to the exe
-            for dll in (src.parent).glob("*.dll"):
-                shutil.move(str(dll), str(tools_dir / dll.name))
+            src_dir = src.parent
+            dll_count = 0
+            for dll in src_dir.glob("*.dll"):
+                dest = tools_dir / dll.name
+                if not dest.exists():
+                    shutil.move(str(dll), str(dest))
+                    dll_count += 1
+            if dll_count:
+                say(f"  moved {dll_count} bundled DLLs to .tools/")
 
     # Verify
     try:
-        out = subprocess.check_output([str(goose_exe), "--version"], text=True, stderr=subprocess.STDOUT)
+        out = subprocess.check_output([str(goose_exe), "--version"], text=True, stderr=subprocess.STDOUT, timeout=10)
         say(f"Goose: {out.strip()}")
+    except subprocess.CalledProcessError as e:
+        die(f"Goose установлен, но не запускается (rc={e.returncode}): {e.output}")
+    except FileNotFoundError as e:
+        die(f"Goose binary не найден после установки: {e}")
     except Exception as e:
-        die(f"Goose установлен, но не запускается: {e}")
+        die(f"Goose установлен, но не запускается: {type(e).__name__}: {e}")
     return goose_exe
 
 
@@ -274,17 +288,24 @@ def main() -> int:
     ap.add_argument("--with-lean", dest="with_lean_local", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
-    say(f"=== AI4Math setup ({sys.platform}) ===")
+    say(f"=== AI4Math setup ({sys.platform}, {platform.python_version()}, {platform.machine()}) ===")
+    say(f"repo: {REPO}")
+    say("[step 1/6] check system deps")
     check_system_deps()
+    say("[step 2/6] check python version")
     check_python_version()
+    say("[step 3/6] create venv + install requirements")
     venv_py = setup_venv()
+    say("[step 4/6] install Goose CLI")
     install_goose()
+    say("[step 5/6] run wizard (or skip if .env exists)")
     run_wizard(venv_py)
     if args.with_lean_local:
         install_lean()
     else:
         warn("Локальный Lean checker не устанавливался (используется remote SciLib).")
         warn("Чтобы добавить позже: ./scripts/install_lean.sh (Linux/macOS/WSL)")
+    say("[step 6/6] create symlink (POSIX only)")
     create_symlink()
 
     print()
@@ -304,10 +325,22 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    import traceback
     try:
         sys.exit(main())
     except KeyboardInterrupt:
         print()
         sys.exit(130)
     except subprocess.CalledProcessError as e:
-        die(f"Команда упала: {e}")
+        print(f"{RED}[AI4Math]{RESET} subprocess failed:", file=sys.stderr)
+        print(f"  cmd: {e.cmd}", file=sys.stderr)
+        print(f"  returncode: {e.returncode}", file=sys.stderr)
+        if e.output:
+            print(f"  stdout: {e.output}", file=sys.stderr)
+        if e.stderr:
+            print(f"  stderr: {e.stderr}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"{RED}[AI4Math]{RESET} unexpected error: {type(e).__name__}: {e}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(2)

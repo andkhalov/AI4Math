@@ -137,9 +137,19 @@ jobs:
           LEAN_CHECKER_URL=https://scilib.tailb97193.ts.net/grag
           "@ | Out-File -Encoding ASCII .env
 
-      - name: Run setup.py
+      - name: Show environment
         shell: pwsh
-        run: python setup.py
+        run: |
+          python --version
+          python -c "import sys; print('executable:', sys.executable); print('platform:', sys.platform); print('machine:', __import__('platform').machine())"
+          where git
+          where curl
+          where tar
+          Get-ChildItem env: | Where-Object { $_.Name -match "PYTHON|PATH" } | Format-Table -AutoSize
+
+      - name: Run setup.py (verbose)
+        shell: pwsh
+        run: python -u setup.py
 
       - name: ai4math doctor
         shell: pwsh
