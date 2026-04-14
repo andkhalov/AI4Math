@@ -149,6 +149,9 @@ jobs:
 
       - name: Run setup.py (verbose)
         shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
         run: |
           $log = "setup.log"
           python -u setup.py *>&1 | Tee-Object -FilePath $log

@@ -56,8 +56,18 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+# Force UTF-8 for stdio JSON-RPC on Windows — MCP protocol is UTF-8 native.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stdin.reconfigure(encoding="utf-8")   # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 import requests
 from mcp.server.fastmcp import FastMCP

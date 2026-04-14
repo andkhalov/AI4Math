@@ -29,6 +29,16 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+# Force UTF-8 on stdout/stderr for Windows — default cp1252 can't encode Cyrillic.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    os.environ.setdefault("PYTHONUTF8", "1")
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE
 IS_WINDOWS = sys.platform == "win32"

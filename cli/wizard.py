@@ -15,6 +15,14 @@ import os
 import sys
 from pathlib import Path
 
+# Force UTF-8 on Windows — default cp1252 can't encode Cyrillic.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 REPO = Path(__file__).resolve().parent.parent
 ENV_FILE = REPO / ".env"
 ENV_EXAMPLE = REPO / ".env.example"
