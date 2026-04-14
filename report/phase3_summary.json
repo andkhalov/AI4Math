@@ -1,0 +1,100 @@
+{
+  "summary": [
+    {
+      "model": "deepseek",
+      "task": "taskA",
+      "n": 10,
+      "success_rate": 1,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "iters_mean": 2.1,
+      "lat_mean": 19.932,
+      "recovery_rate": 0
+    },
+    {
+      "model": "deepseek",
+      "task": "taskB",
+      "n": 10,
+      "success_rate": 0.7,
+      "ci_lo": 0.4,
+      "ci_hi": 1.0,
+      "iters_mean": 4.8,
+      "lat_mean": 28.375999999999998,
+      "recovery_rate": 0.4
+    },
+    {
+      "model": "deepseek",
+      "task": "taskC",
+      "n": 10,
+      "success_rate": 1,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "iters_mean": 6,
+      "lat_mean": 40.755,
+      "recovery_rate": 0.1
+    },
+    {
+      "model": "qwen",
+      "task": "taskA",
+      "n": 10,
+      "success_rate": 1,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "iters_mean": 2,
+      "lat_mean": 10.366,
+      "recovery_rate": 0
+    },
+    {
+      "model": "qwen",
+      "task": "taskB",
+      "n": 10,
+      "success_rate": 1,
+      "ci_lo": 1.0,
+      "ci_hi": 1.0,
+      "iters_mean": 4,
+      "lat_mean": 14.994,
+      "recovery_rate": 0
+    },
+    {
+      "model": "qwen",
+      "task": "taskC",
+      "n": 10,
+      "success_rate": 0.9,
+      "ci_lo": 0.7,
+      "ci_hi": 1.0,
+      "iters_mean": 8.1,
+      "lat_mean": 24.938000000000002,
+      "recovery_rate": 0.6
+    }
+  ],
+  "pairwise": [
+    {
+      "pair": "deepseek vs qwen",
+      "task": "taskA",
+      "p_mcnemar": 1.0,
+      "p_mcnemar_bonf": 1.0,
+      "p_wilcoxon": 1.0,
+      "p_wilcoxon_bonf": 1.0,
+      "cohens_d": 0.44721359549995837
+    },
+    {
+      "pair": "deepseek vs qwen",
+      "task": "taskB",
+      "p_mcnemar": 0.25,
+      "p_mcnemar_bonf": 0.75,
+      "p_wilcoxon": 0.4375,
+      "p_wilcoxon_bonf": 1.0,
+      "cohens_d": 0.5262348115842175
+    },
+    {
+      "pair": "deepseek vs qwen",
+      "task": "taskC",
+      "p_mcnemar": 1.0,
+      "p_mcnemar_bonf": 1.0,
+      "p_wilcoxon": 0.234375,
+      "p_wilcoxon_bonf": 0.703125,
+      "cohens_d": -0.5941017334765784
+    }
+  ],
+  "winner": "qwen"
+}

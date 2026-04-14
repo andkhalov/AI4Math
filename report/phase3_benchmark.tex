@@ -1,0 +1,38 @@
+\documentclass[11pt]{article}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage[margin=2cm]{geometry}
+\title{AI4Math Phase 3 Benchmark}
+\author{AI4Math}
+\date{\today}
+\begin{document}
+\maketitle
+\section{Setup}
+Agent framework: \textbf{Goose}. Inference backbone: Yandex AI Studio OpenAI-compatible endpoint. Models tested: deepseek, qwen. Tasks: taskA, taskB, taskC. Trials per cell: 10.
+\section{Success rate by model and task}
+\begin{tabular}{llrrrrr}
+\toprule
+Model & Task & N & Success & 95\% CI & Iters (mean) & Latency (s) \\
+\midrule
+deepseek & taskA & 10 & 1.00 & [1.00, 1.00] & 2.1 & 19.9 \\
+deepseek & taskB & 10 & 0.70 & [0.40, 1.00] & 4.8 & 28.4 \\
+deepseek & taskC & 10 & 1.00 & [1.00, 1.00] & 6.0 & 40.8 \\
+qwen & taskA & 10 & 1.00 & [1.00, 1.00] & 2.0 & 10.4 \\
+qwen & taskB & 10 & 1.00 & [1.00, 1.00] & 4.0 & 15.0 \\
+qwen & taskC & 10 & 0.90 & [0.70, 1.00] & 8.1 & 24.9 \\
+\bottomrule
+\end{tabular}
+\section{Pairwise comparisons}
+Bonferroni correction over 3 tests.
+\begin{tabular}{lllllr}
+\toprule
+Pair & Task & $p_{McN}$ (Bonf.) & $p_{Wx}$ (Bonf.) & Cohen's $d$ \\
+\midrule
+deepseek vs qwen & taskA & 1.000 & 1.000 & +0.45 \\
+deepseek vs qwen & taskB & 0.750 & 1.000 & +0.53 \\
+deepseek vs qwen & taskC & 1.000 & 0.703 & -0.59 \\
+\bottomrule
+\end{tabular}
+\section{Recommended model}
+Based on overall success rate (tie-broken by latency), the recommended default model is \textbf{qwen}.
+\end{document}

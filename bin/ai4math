@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# AI4Math — CLI-агент для курса ШАД AI4Math Intensive.
+#
+# Usage:
+#   ai4math                       интерактивная сессия с моделью по умолчанию
+#   ai4math -m qwen|deepseek|gptoss   выбор модели
+#   ai4math run "промпт"          выполнить одну задачу и выйти
+#   ai4math -h                    помощь
+#
+# Модели одинаково хорошо работают. Qwen — быстрее всех на коротких
+# ответах и без reasoning. DeepSeek и gpt-oss — thinking-модели,
+# внутренний reasoning-трейс, ответ может быть точнее на сложных задачах.
+
+set -euo pipefail
+
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
+
+MODEL_NICK="${AI4MATH_MODEL:-qwen}"
+GOOSE_EXTRA_ARGS=()
+MODE="session"
+
+usage() {
+    cat <<EOF
+AI4Math — научный code-агент для курса ШАД AI4Math Intensive.
+
+Использование:
+    ai4math [опции]              интерактивная сессия (по умолчанию)
+    ai4math run "<промпт>"       одна задача, вывод в консоль, выход
+    ai4math doctor               проверка окружения (API-ключ, lean-checker)
+    ai4math --help               эта справка
+
+Опции:
+    -m, --model <name>    выбор модели: qwen (default), deepseek, gptoss
+    --no-lean             отключить lean_check MCP (только developer)
+
+Переменные окружения (из .env):
+    YANDEX_AI_API         ключ Yandex AI Studio
+    YANDEX_CLOUD_FOLDER   folder id
+    YANDEX_QWEN / YANDEX_DEEPSEEK / YANDEX_GPTOOS   идентификаторы моделей
+    LEAN_CHECKER_URL      HTTP-адрес lean-checker (default: http://localhost:8888)
+
+Продукт разработан в рамках интенсива ШАД «AI4Math Intensive —
+создание персональной AI-среды исследователя-математика».
+А. П. Халов | ФИЦ ИУ РАН | МФТИ | ШАД Яндекса.
+EOF
+}
+
+banner() {
+    # Отключаемый через AI4MATH_QUIET=1
+    [ "${AI4MATH_QUIET:-0}" = "1" ] && return 0
+    local model_label
+    case "$MODEL_NICK" in
+        qwen)     model_label="Qwen3-235B A22B FP8 (Yandex AI Studio)" ;;
+        deepseek) model_label="DeepSeek-V3.2 (Yandex AI Studio)" ;;
+        gptoss)   model_label="gpt-oss-120b (Yandex AI Studio)" ;;
+        *)        model_label="$MODEL_NICK" ;;
+    esac
+    cat <<EOF
+
+  ─── AI4Math ──────────────────────────────────────────────────
+    научный code-агент
+    Инференс  →  Контекст  →  Верификация
+  ─────────────────────────────────────────────────────────────
+    Модель:    $model_label
+    Контекст:  $((GOOSE_CONTEXT_LIMIT/1000))k токенов, auto-compact при ${GOOSE_AUTO_COMPACT_THRESHOLD}
+    Lean 4:    ${LEAN_STATUS}
+  ─────────────────────────────────────────────────────────────
+    Интенсив ШАД «AI4Math Intensive» — А. П. Халов
+    Команды:  /exit — выйти,  /help — помощь Goose
+
+EOF
+}
+
+doctor() {
+    echo "=== AI4Math doctor ==="
+    echo -n ".env: "
+    [ -f "$REPO/.env" ] && echo "OK" || { echo "НЕТ"; exit 1; }
+    set -a; source "$REPO/.env"; set +a
+    echo -n "YANDEX_AI_API: "
+    [ -n "${YANDEX_AI_API:-}" ] && echo "установлен (${#YANDEX_AI_API} символов)" || echo "ПУСТО"
+    echo -n "YANDEX_CLOUD_FOLDER: ${YANDEX_CLOUD_FOLDER:-ПУСТО}"; echo
+    echo -n "goose binary: "
+    [ -x "$REPO/.tools/goose" ] && "$REPO/.tools/goose" --version || echo "НЕ НАЙДЕН"
+    echo -n "python venv: "
+    [ -x "$REPO/.venv/bin/python" ] && "$REPO/.venv/bin/python" --version || echo "НЕ НАЙДЕН"
+    echo -n "lean-checker service: "
+    if curl -fsS --max-time 3 "${LEAN_CHECKER_URL:-http://localhost:8888}/health" >/dev/null 2>&1; then
+        echo "UP"
+    else
+        echo "DOWN (lean_check вернёт graceful failure)"
+    fi
+    exit 0
+}
+
+# --- parse args ---
+POS_ARGS=()
+USE_LEAN=1
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -m|--model) MODEL_NICK="$2"; shift 2 ;;
+        --no-lean)  USE_LEAN=0; shift ;;
+        -h|--help)  usage; exit 0 ;;
+        doctor)     doctor ;;
+        run)        MODE="run"; shift ;;
+        --)         shift; POS_ARGS+=("$@"); break ;;
+        *)          POS_ARGS+=("$1"); shift ;;
+    esac
+done
+
+# --- load env ---
+if [ ! -f "$REPO/.env" ]; then
+    echo "AI4Math: нет файла $REPO/.env — запусти setup.sh сначала" >&2
+    exit 1
+fi
+set -a; source "$REPO/.env"; set +a
+
+# Per-model context window (empirically probed against Yandex on 2026-04-14):
+#   qwen3-235b-a22b-fp8  : accepts ≥256k input (server-side native likely higher
+#                          but 256k is the practical ceiling; 55 s wall at 256k)
+#   deepseek-v32         : hard 131072 total (Yandex returns 400 above that)
+#   gpt-oss-120b         : ~131072 total (input + output combined)
+case "$MODEL_NICK" in
+    qwen)     SLUG="$YANDEX_QWEN"     ; MODEL_CTX=256000 ;;
+    deepseek) SLUG="$YANDEX_DEEPSEEK" ; MODEL_CTX=128000 ;;
+    gptoss|gpt-oss) SLUG="$YANDEX_GPTOOS" ; MODEL_CTX=128000 ; MODEL_NICK="gptoss" ;;
+    *)        echo "Неизвестная модель: $MODEL_NICK (qwen|deepseek|gptoss)" >&2; exit 1 ;;
+esac
+
+# --- Goose env ---
+export GOOSE_PROVIDER=openai
+export OPENAI_HOST=https://llm.api.cloud.yandex.net
+export OPENAI_BASE_PATH=/v1/chat/completions
+export OPENAI_API_KEY="$YANDEX_AI_API"
+export GOOSE_MODEL="gpt://$YANDEX_CLOUD_FOLDER/$SLUG"
+
+# Full context window (can be overridden in .env or on the command line).
+export GOOSE_CONTEXT_LIMIT="${GOOSE_CONTEXT_LIMIT:-$MODEL_CTX}"
+# Start summarizing history when we've used 80% of the window — leaves
+# headroom for the next turn without cutting it close to the provider's cap.
+export GOOSE_AUTO_COMPACT_THRESHOLD="${GOOSE_AUTO_COMPACT_THRESHOLD:-0.8}"
+# Output cap per turn. Thinking models (deepseek, gpt-oss) burn tokens on
+# reasoning, so give them plenty of room — 16k leaves plenty for reasoning
+# + actual answer. Can be overridden in .env.
+export GOOSE_MAX_TOKENS="${GOOSE_MAX_TOKENS:-16000}"
+export GOOSE_TEMPERATURE="${GOOSE_TEMPERATURE:-0.2}"
+
+export LEAN_CHECKER_URL="${LEAN_CHECKER_URL:-http://localhost:8888}"
+
+# --- lean-checker status for banner ---
+if [ "$USE_LEAN" = "1" ] && curl -fsS --max-time 2 "$LEAN_CHECKER_URL/health" >/dev/null 2>&1; then
+    LEAN_STATUS="подключён ($LEAN_CHECKER_URL)"
+elif [ "$USE_LEAN" = "1" ]; then
+    LEAN_STATUS="тул доступен, сервис DOWN"
+else
+    LEAN_STATUS="отключён"
+fi
+
+RECIPE_FILE="$REPO/recipes/ai4math.yaml"
+
+# --- Translate recipe → goose session flags ---
+# `goose session` has no --recipe/--system support, so we:
+#   1) extract `instructions:` to a tempfile and point GOOSE_SYSTEM_PROMPT_FILE_PATH at it
+#   2) translate `extensions:` into --with-builtin / --with-extension CLI flags
+# `goose run` supports --recipe natively so run mode uses that path directly.
+
+SYSPROMPT_FILE="$(mktemp --suffix=.md)"
+GOOSE_ARGS_FILE="$(mktemp)"
+trap 'rm -f "$SYSPROMPT_FILE" "$GOOSE_ARGS_FILE" "${RUN_RECIPE:-}"' EXIT
+
+USE_LEAN="$USE_LEAN" \
+RECIPE_FILE="$RECIPE_FILE" \
+SYSPROMPT_FILE="$SYSPROMPT_FILE" \
+GOOSE_ARGS_FILE="$GOOSE_ARGS_FILE" \
+"$REPO/.venv/bin/python" <<'PY'
+import os, yaml, shlex
+with open(os.environ["RECIPE_FILE"]) as f:
+    r = yaml.safe_load(f)
+with open(os.environ["SYSPROMPT_FILE"], "w") as f:
+    f.write(r.get("instructions", ""))
+args = []
+use_lean = os.environ.get("USE_LEAN", "1") == "1"
+for ext in r.get("extensions", []) or []:
+    t = ext.get("type")
+    name = ext.get("name")
+    if t == "builtin":
+        args += ["--with-builtin", name]
+    elif t == "stdio":
+        if name == "lean" and not use_lean:
+            continue
+        env_prefix = " ".join(f"{k}={os.environ.get(k, '')}" for k in ext.get("env_keys", []) if os.environ.get(k))
+        cmd = ext.get("cmd", "")
+        # Resolve relative paths against repo root
+        if cmd and not os.path.isabs(cmd):
+            cmd = os.path.join(os.path.dirname(os.path.dirname(os.environ["RECIPE_FILE"])), cmd)
+        parts = [cmd] + list(ext.get("args") or [])
+        full = (env_prefix + " " if env_prefix else "") + " ".join(shlex.quote(p) for p in parts)
+        args += ["--with-extension", full]
+with open(os.environ["GOOSE_ARGS_FILE"], "w") as f:
+    for a in args:
+        f.write(a + "\n")
+PY
+
+# Read extension args back into a bash array
+GOOSE_EXT_ARGS=()
+while IFS= read -r line; do
+    GOOSE_EXT_ARGS+=("$line")
+done < "$GOOSE_ARGS_FILE"
+
+export GOOSE_SYSTEM_PROMPT_FILE_PATH="$SYSPROMPT_FILE"
+
+banner
+
+case "$MODE" in
+    session)
+        exec "$REPO/.tools/goose" session --no-profile "${GOOSE_EXT_ARGS[@]}"
+        ;;
+    run)
+        if [ ${#POS_ARGS[@]} -eq 0 ]; then
+            echo "ai4math run: нужен текст промпта" >&2
+            exit 1
+        fi
+        # `goose run --recipe` loads instructions but tool-calling misbehaves
+        # (the model prints the call in markdown instead of executing it).
+        # Workaround: use the same --with-extension + GOOSE_SYSTEM_PROMPT_FILE_PATH
+        # plumbing as session mode, just with `run -t`.
+        exec "$REPO/.tools/goose" run --no-profile "${GOOSE_EXT_ARGS[@]}" -t "${POS_ARGS[*]}"
+        ;;
+esac

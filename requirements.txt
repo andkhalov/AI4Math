@@ -1,0 +1,6 @@
+openai>=1.30
+python-dotenv>=1.0
+mcp[cli]>=0.9
+requests>=2.31
+PyYAML>=6.0
+pypdf>=4.0

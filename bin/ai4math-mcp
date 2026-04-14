@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Unified AI4Math MCP stdio server — lean + search + web + pdf in one process.
+REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+exec "$REPO/.venv/bin/python" "$REPO/src/ai4math_mcp.py" "$@"

@@ -1,0 +1,32 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Goose tooling
+.tools/
+.config/goose/
+
+# Temporary benchmark artifacts (experiment working dirs)
+.bench_venv/
+/tmp_bench/
+
+# Lean-checker Docker workspace (submodule builds volumes outside tree)
+vendor/lean-checker/.lake/
+vendor/lean-checker/lake-packages/
+vendor/lean-checker/build/
+*.olean
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local LaTeX artifacts
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.pdf
