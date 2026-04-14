@@ -149,7 +149,23 @@ jobs:
 
       - name: Run setup.py (verbose)
         shell: pwsh
-        run: python -u setup.py
+        run: |
+          $log = "setup.log"
+          "# setup.py output (Windows)" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          try {
+              python -u setup.py 2>&1 | Tee-Object -FilePath $log
+              $rc = $LASTEXITCODE
+          } catch {
+              $rc = 1
+              $_ | Out-String | Tee-Object -FilePath $log -Append
+          }
+          if (Test-Path $log) {
+              Get-Content $log | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          }
+          '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          "Exit code: $rc" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          if ($rc -ne 0) { exit $rc }
 
       - name: ai4math doctor
         shell: pwsh
