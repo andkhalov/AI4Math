@@ -147,40 +147,12 @@ jobs:
           where tar
           Get-ChildItem env: | Where-Object { $_.Name -match "PYTHON|PATH" } | Format-Table -AutoSize
 
-      - name: Run setup.py (verbose)
-        shell: pwsh
+      - name: Run setup.py
+        shell: cmd
         env:
           PYTHONIOENCODING: utf-8
           PYTHONUTF8: "1"
-        run: |
-          $log = "setup.log"
-          python -u setup.py *>&1 | Tee-Object -FilePath $log
-          $rc = $LASTEXITCODE
-          "# setup.py output (Windows)" | Out-File $env:GITHUB_STEP_SUMMARY -Append
-          '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
-          if (Test-Path $log) { Get-Content $log | Out-File $env:GITHUB_STEP_SUMMARY -Append }
-          '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
-          "Exit code: $rc" | Out-File $env:GITHUB_STEP_SUMMARY -Append
-          if ($rc -ne 0) {
-              # Surface the tail of the log into a failure annotation so it
-              # reaches the public API without needing admin log-download rights.
-              $tail = (Get-Content $log -Tail 60) -join "`n"
-              $encoded = $tail -replace "`r","" -replace "`n","%0A" -replace "%","%25"
-              Write-Host "::error title=setup.py failed (rc=$rc)::$encoded"
-              exit $rc
-          }
-
-      - name: Upload setup log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-setup-log
-          path: |
-            setup.log
-            .venv/pyvenv.cfg
-            .tools/
-          retention-days: 7
-          if-no-files-found: ignore
+        run: python -u setup.py
 
       - name: ai4math doctor
         shell: pwsh
@@ -191,11 +163,15 @@ jobs:
         env:
           AI4MATH_QUIET: "1"
           AI4MATH_NOCOLOR: "1"
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
         run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
           New-Item -ItemType Directory -Force -Path C:\taskA | Out-Null
           Set-Location C:\taskA
           python $env:GITHUB_WORKSPACE\bin\ai4math.py run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
-          if (-not (Test-Path hello.py)) { throw "hello.py missing" }
+          if (-not (Test-Path hello.py)) { throw "hello.py missing after ai4math run" }
           $actual = (python hello.py | Out-String).Trim()
           $expected = "0`n1`n1`n2`n3`n5`n8`n13`n21`n34"
           if ($actual -ne $expected) {
