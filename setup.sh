@@ -48,10 +48,31 @@ done
 
 say "=== AI4Math setup ==="
 
-# --- 1) Python 3.10+ ---
-if ! command -v python3 >/dev/null 2>&1; then
-    die "python3 не найден. Установи Python 3.10+."
+# --- 0) System dependencies ---
+MISSING=()
+for cmd in python3 curl git tar; do
+    command -v "$cmd" >/dev/null 2>&1 || MISSING+=("$cmd")
+done
+command -v bzip2 >/dev/null 2>&1 || MISSING+=("bzip2")
+# Goose binary (Rust) needs libgomp1 at runtime on Linux
+if [ "$(uname -s)" = "Linux" ]; then
+    if ! ldconfig -p 2>/dev/null | grep -q "libgomp.so.1"; then
+        MISSING+=("libgomp1")
+    fi
 fi
+if [ ${#MISSING[@]} -gt 0 ]; then
+    warn "Не хватает системных зависимостей: ${MISSING[*]}"
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "    Debian/Ubuntu: sudo apt-get install -y ${MISSING[*]}"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "    Fedora/RHEL: sudo dnf install -y ${MISSING[*]} (libgomp может быть как libgomp)"
+    elif command -v brew >/dev/null 2>&1; then
+        echo "    macOS: libgomp приходит с gcc — brew install gcc git curl"
+    fi
+    die "Доставь зависимости и запусти setup.sh заново."
+fi
+
+# --- 1) Python 3.10+ ---
 PY_OK=$(python3 -c "import sys; print(1 if sys.version_info >= (3,10) else 0)" 2>/dev/null || echo 0)
 [ "$PY_OK" = "1" ] || die "Нужен Python 3.10+ (сейчас: $(python3 --version))"
 say "Python: $(python3 --version)"
