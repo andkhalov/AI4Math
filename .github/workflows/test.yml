@@ -151,21 +151,33 @@ jobs:
         shell: pwsh
         run: |
           $log = "setup.log"
+          python -u setup.py *>&1 | Tee-Object -FilePath $log
+          $rc = $LASTEXITCODE
           "# setup.py output (Windows)" | Out-File $env:GITHUB_STEP_SUMMARY -Append
           '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
-          try {
-              python -u setup.py 2>&1 | Tee-Object -FilePath $log
-              $rc = $LASTEXITCODE
-          } catch {
-              $rc = 1
-              $_ | Out-String | Tee-Object -FilePath $log -Append
-          }
-          if (Test-Path $log) {
-              Get-Content $log | Out-File $env:GITHUB_STEP_SUMMARY -Append
-          }
+          if (Test-Path $log) { Get-Content $log | Out-File $env:GITHUB_STEP_SUMMARY -Append }
           '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
           "Exit code: $rc" | Out-File $env:GITHUB_STEP_SUMMARY -Append
-          if ($rc -ne 0) { exit $rc }
+          if ($rc -ne 0) {
+              # Surface the tail of the log into a failure annotation so it
+              # reaches the public API without needing admin log-download rights.
+              $tail = (Get-Content $log -Tail 60) -join "`n"
+              $encoded = $tail -replace "`r","" -replace "`n","%0A" -replace "%","%25"
+              Write-Host "::error title=setup.py failed (rc=$rc)::$encoded"
+              exit $rc
+          }
+
+      - name: Upload setup log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-setup-log
+          path: |
+            setup.log
+            .venv/pyvenv.cfg
+            .tools/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: ai4math doctor
         shell: pwsh
