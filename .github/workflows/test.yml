@@ -155,29 +155,44 @@ jobs:
         run: python -u setup.py
 
       - name: ai4math doctor
-        shell: pwsh
-        run: python bin\ai4math.py doctor
+        shell: cmd
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: call bin\ai4math.bat doctor
 
       - name: ai4math run — Task A (fibonacci)
-        shell: pwsh
+        shell: cmd
         env:
           AI4MATH_QUIET: "1"
           AI4MATH_NOCOLOR: "1"
           PYTHONIOENCODING: utf-8
           PYTHONUTF8: "1"
         run: |
-          $ErrorActionPreference = 'Continue'
-          $PSNativeCommandUseErrorActionPreference = $false
-          New-Item -ItemType Directory -Force -Path C:\taskA | Out-Null
-          Set-Location C:\taskA
-          python $env:GITHUB_WORKSPACE\bin\ai4math.py run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
-          if (-not (Test-Path hello.py)) { throw "hello.py missing after ai4math run" }
-          $actual = (python hello.py | Out-String).Trim()
-          $expected = "0`n1`n1`n2`n3`n5`n8`n13`n21`n34"
-          if ($actual -ne $expected) {
-            Write-Host "FAIL: output mismatch"
-            Write-Host "actual: $actual"
-            Write-Host "expected: $expected"
-            throw "mismatch"
-          }
-          Write-Host "PASS"
+          mkdir C:\taskA 2>nul
+          cd /d C:\taskA
+          call "%GITHUB_WORKSPACE%\bin\ai4math.bat" run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
+          if not exist hello.py (
+            echo FAIL: hello.py missing after ai4math run
+            exit /b 1
+          )
+          "%GITHUB_WORKSPACE%\.venv\Scripts\python.exe" hello.py > actual.txt
+          (
+            echo 0
+            echo 1
+            echo 1
+            echo 2
+            echo 3
+            echo 5
+            echo 8
+            echo 13
+            echo 21
+            echo 34
+          ) > expected.txt
+          fc actual.txt expected.txt
+          if errorlevel 1 (
+            echo FAIL: output mismatch
+            type actual.txt
+            exit /b 1
+          )
+          echo PASS
