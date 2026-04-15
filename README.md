@@ -70,6 +70,68 @@ bin\ai4math.bat doctor               проверка
 
 Ключ Yandex AI Studio получить здесь: [yandex.cloud/ru/docs/ai-studio/quickstart](https://yandex.cloud/ru/docs/ai-studio/quickstart).
 
+### Команды пользователя
+
+Полный список способов запустить `ai4math` и управлять сессией.
+
+**CLI — запуск из терминала:**
+
+| Команда | Что делает |
+|---|---|
+| `ai4math` | Интерактивная сессия с моделью по умолчанию (qwen) |
+| `ai4math run "<промпт>"` | Одна задача, вывод в консоль, выход. Удобно в скриптах и CI |
+| `ai4math doctor` | Проверка окружения: API-ключ, Goose, `.venv`, MCP-сервер, Lean endpoint |
+| `ai4math --help` | Краткая справка по всем флагам |
+
+**Флаги запуска:**
+
+| Флаг | Значение |
+|---|---|
+| `-m qwen` / `-m deepseek` / `-m gptoss` | Выбор модели на эту сессию |
+| `--mode auto` | (default) все tool-calls автоматом |
+| `--mode smart_approve` | Read-only автоматом, write/exec с подтверждением |
+| `--mode approve` | Каждый tool-call требует подтверждения |
+| `--mode chat` | Только диалог, без tool-calls |
+| `--no-lean` | Стартовать без Lean-тулов (полезно, если SciLib endpoint временно недоступен) |
+| `--` | Всё что после `--` передаётся в Goose как есть |
+
+**Slash-команды в интерактивной сессии** (нативные команды Goose):
+
+| Команда | Что делает |
+|---|---|
+| `/plan <task>` | Составить пошаговый план через planner-модель, показать пользователю, по `accept` — исполнить |
+| `/mode <name>` | Переключить approval-режим на лету (`auto` / `smart_approve` / `approve` / `chat`) |
+| `/summary` | Свернуть (компактифицировать) историю диалога вручную, оставить суть |
+| `/prompt <name>` | Загрузить встроенный prompt template Goose |
+| `/help` | Полный список Goose slash-команд |
+| `/exit` или `Ctrl-C` (дважды) | Выйти из сессии |
+
+**Горячие клавиши:**
+
+| Клавиши | Действие |
+|---|---|
+| `Ctrl-C` | Прервать текущую операцию агента (не выходя из сессии) |
+| `Ctrl-C` дважды подряд | Выйти из `ai4math` |
+| `Ctrl-D` | Выйти (при пустой строке ввода) |
+| `↑` / `↓` | История ввода |
+
+**Переменные окружения** (переопределяют defaults):
+
+| Переменная | Значение |
+|---|---|
+| `AI4MATH_MODEL` | Модель по умолчанию: `qwen` / `deepseek` / `gptoss` |
+| `AI4MATH_QUIET=1` | Не печатать баннер при старте |
+| `AI4MATH_NOCOLOR=1` | Выключить ANSI-цвета |
+| `AI4MATH_LEAN_DISABLED=1` | Полностью отключить Lean-тулы (как `--no-lean`) |
+| `AI4MATH_SKILLS_DIR` | Дополнительная директория со skills |
+| `GOOSE_MODE` | Approval-режим по умолчанию |
+| `GOOSE_PLANNER_MODEL` / `GOOSE_PLANNER_PROVIDER` | Отдельная модель для `/plan` |
+| `GOOSE_CONTEXT_LIMIT` | Лимит контекста модели |
+| `GOOSE_AUTO_COMPACT_THRESHOLD` | Порог авто-компакции истории (default 0.8) |
+| `LEAN_CHECKER_URL` | URL верификационного endpoint'а (default — публичный SciLib-GRC21) |
+
+**Windows native** — то же самое через `bin\ai4math.bat` (флаги идентичны).
+
 ### Модульные skills
 
 AI4Math использует **on-demand loading of topic-specific skills** — вместо монолитного промпта агент динамически подгружает короткие руководства из `skills/` когда задача затрагивает конкретную область. Это стандартный паттерн Claude Code в адаптации под Goose.
