@@ -736,17 +736,21 @@ def pdf_download(url: str, dest_path: str = "literature/") -> str:
         )
 
     target = _pdf_resolve(dest_path)
-    # If dest_path ends with / or is a directory, pick a filename
+    # If dest_path ends with / or is a directory, pick a filename.
+    # Prefer URL basename (deterministic — matches what the agent sees in
+    # the URL it just downloaded). Content-Disposition is fallback only,
+    # because arxiv etc. rewrite filenames with version suffixes ("v5")
+    # that the agent can't predict, which breaks subsequent pdf_info calls.
     if dest_path.endswith("/") or (target.exists() and target.is_dir()):
         target.mkdir(parents=True, exist_ok=True)
-        # Try Content-Disposition filename, then URL basename, then fallback
-        fname = None
-        cd = r.headers.get("Content-Disposition", "")
-        if "filename=" in cd:
-            fname = cd.split("filename=", 1)[1].strip('"').strip().split(";")[0]
+        from urllib.parse import urlparse
+        fname = Path(urlparse(url).path).name
         if not fname:
-            from urllib.parse import urlparse
-            fname = Path(urlparse(url).path).name or "download.pdf"
+            cd = r.headers.get("Content-Disposition", "")
+            if "filename=" in cd:
+                fname = cd.split("filename=", 1)[1].strip('"').strip().split(";")[0]
+        if not fname:
+            fname = "download.pdf"
         if not fname.lower().endswith(".pdf"):
             fname += ".pdf"
         target = target / fname
@@ -777,12 +781,27 @@ def pdf_download(url: str, dest_path: str = "literature/") -> str:
     return f"OK: PDF сохранён в {target} ({size} байт)"
 
 
+def _pdf_suggest_near(p: Path) -> str:
+    """When a PDF path is missing, list candidate PDFs in the parent dir
+    so the agent can recover from a stale filename (e.g. arxiv version
+    suffix added by Content-Disposition)."""
+    parent = p.parent if p.parent.exists() else Path.cwd()
+    try:
+        candidates = sorted(parent.glob("*.pdf"))
+    except Exception:
+        candidates = []
+    if not candidates:
+        return ""
+    listing = "\n".join(f"  - {c}" for c in candidates[:10])
+    return f"\nДоступные PDF в {parent}:\n{listing}"
+
+
 @mcp.tool()
 def pdf_info(path: str) -> str:
     """Return page count, metadata, and file size for a local PDF."""
     p = _pdf_resolve(path)
     if not p.exists():
-        return f"ERROR: файл не найден: {p}"
+        return f"ERROR: файл не найден: {p}{_pdf_suggest_near(p)}"
     try:
         reader = PdfReader(str(p))
     except Exception as e:
@@ -806,7 +825,7 @@ def pdf_read(path: str, pages: str = "1-5", max_chars: int = PDF_DEFAULT_MAX_CHA
     """
     p = _pdf_resolve(path)
     if not p.exists():
-        return f"ERROR: файл не найден: {p}"
+        return f"ERROR: файл не найден: {p}{_pdf_suggest_near(p)}"
     try:
         reader = PdfReader(str(p))
     except Exception as e:
@@ -834,19 +853,26 @@ def pdf_search(path: str, query: str, context: int = 120) -> str:
     page number and surrounding context (±`context` chars)."""
     p = _pdf_resolve(path)
     if not p.exists():
-        return f"ERROR: файл не найден: {p}"
+        return f"ERROR: файл не найден: {p}{_pdf_suggest_near(p)}"
     try:
         reader = PdfReader(str(p))
     except Exception as e:
         return _fmt_err("pdf_search", e)
-    q = query.lower()
+    import unicodedata
+    def norm(s: str) -> str:
+        # NFKD decomposes composed chars (ö → o + combining diaeresis),
+        # then we strip combining marks. This also handles dvips PDFs
+        # that already emit "G" + combining U+0308 as separate glyphs.
+        d = unicodedata.normalize("NFKD", s)
+        return "".join(c for c in d if not unicodedata.combining(c)).casefold()
+    q = norm(query)
     hits: list[str] = []
     for i, page in enumerate(reader.pages):
         try:
             txt = page.extract_text() or ""
         except Exception:
             continue
-        lower = txt.lower()
+        lower = norm(txt)
         start = 0
         while True:
             j = lower.find(q, start)
