@@ -204,55 +204,15 @@ def doctor() -> None:
     else:
         print(f"python venv: НЕ НАЙДЕН ({venv_py})")
 
-    # --- MCP subprocess smoke test: ключевой индикатор, что extensions реально
-    # грузятся Goose'ом. Probe'им `tools/list` через stdio JSON-RPC.
-    mcp_shim = REPO / "bin" / ("ai4math-mcp.bat" if IS_WINDOWS else "ai4math-mcp")
-    if mcp_shim.exists():
-        try:
-            import json
-            probe_env = os.environ.copy()
-            probe_env.setdefault("LEAN_CHECKER_URL", env.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag"))
-            proc = subprocess.Popen(
-                [str(mcp_shim)],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                env=probe_env, text=True,
-            )
-            init = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                               "params": {"protocolVersion": "2024-11-05", "capabilities": {},
-                                          "clientInfo": {"name": "doctor", "version": "0"}}})
-            initialized = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
-            list_req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
-            proc.stdin.write(init + "\n")
-            proc.stdin.write(initialized + "\n")
-            proc.stdin.write(list_req + "\n")
-            proc.stdin.flush()
-            tools = None
-            import time as _t
-            deadline = _t.time() + 8
-            while _t.time() < deadline:
-                line = proc.stdout.readline()
-                if not line:
-                    break
-                try:
-                    msg = json.loads(line)
-                except Exception:
-                    continue
-                if msg.get("id") == 2:
-                    tools = msg.get("result", {}).get("tools", [])
-                    break
-            proc.terminate()
-            if tools is not None:
-                names = ", ".join(t["name"] for t in tools)
-                print(f"MCP ai4math: OK ({len(tools)} tools: {names})")
-            else:
-                err = proc.stderr.read() if proc.stderr else ""
-                print(f"MCP ai4math: НЕ ОТВЕЧАЕТ / subprocess failed")
-                if err:
-                    print(f"  stderr: {err.strip()[:500]}")
-        except Exception as e:
-            print(f"MCP ai4math: ошибка probe: {type(e).__name__}: {e}")
+    # --- MCP subprocess smoke test via shared probe_mcp() ---
+    lean_url_env = {"LEAN_CHECKER_URL": env.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag")}
+    tools, err = probe_mcp(env_vars=lean_url_env, timeout=8)
+    if tools is not None and not err:
+        print(f"MCP ai4math: OK ({len(tools)} tools: {', '.join(tools)})")
     else:
-        print(f"MCP ai4math: shim не найден ({mcp_shim})")
+        print(f"MCP ai4math: FAIL — {err}")
+        if tools is not None:
+            print(f"  got tools: {tools}")
 
     lean_url = env.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag")
     try:
@@ -316,6 +276,77 @@ MODEL_DEFAULTS = {
 
 
 VALID_GOOSE_MODES = {"auto", "smart_approve", "approve", "chat"}
+
+
+def probe_mcp(env_vars: dict | None = None, timeout: int = 8) -> tuple[list[str] | None, str]:
+    """Spawn bin/ai4math-mcp, send JSON-RPC tools/list, return tool names.
+
+    Returns (tool_names, error_message). On success: (list_of_15_names, "").
+    On failure: (None, human-readable reason).
+
+    Used by both `doctor` subcommand and main() pre-flight check to catch
+    the class of bugs where Goose silently continues without loading our
+    MCP extension because the subprocess failed to start.
+    """
+    import json as _json
+    import time as _t
+    mcp_shim = REPO / "bin" / ("ai4math-mcp.bat" if IS_WINDOWS else "ai4math-mcp")
+    if not mcp_shim.exists():
+        return None, f"shim not found: {mcp_shim}"
+    try:
+        probe_env = os.environ.copy()
+        if env_vars:
+            probe_env.update(env_vars)
+        proc = subprocess.Popen(
+            [str(mcp_shim)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=probe_env, text=True,
+        )
+    except Exception as e:
+        return None, f"failed to spawn: {type(e).__name__}: {e}"
+    try:
+        init = _json.dumps({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                       "clientInfo": {"name": "ai4math-preflight", "version": "0"}}
+        })
+        initialized = _json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+        list_req = _json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        proc.stdin.write(init + "\n")
+        proc.stdin.write(initialized + "\n")
+        proc.stdin.write(list_req + "\n")
+        proc.stdin.flush()
+    except Exception as e:
+        proc.terminate()
+        return None, f"stdin write failed: {type(e).__name__}: {e}"
+
+    deadline = _t.time() + timeout
+    tools = None
+    while _t.time() < deadline:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        try:
+            msg = _json.loads(line)
+        except Exception:
+            continue
+        if msg.get("id") == 2:
+            tools = [t["name"] for t in msg.get("result", {}).get("tools", [])]
+            break
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    if tools is None:
+        err = ""
+        try:
+            err = proc.stderr.read()[:500]
+        except Exception:
+            pass
+        return None, f"timeout waiting for tools/list (stderr: {err!r})"
+    if len(tools) < 10:
+        return tools, f"expected ≥10 tools, got {len(tools)}: {tools}"
+    return tools, ""
 
 
 def main(argv: list[str]) -> int:
@@ -417,6 +448,26 @@ def main(argv: list[str]) -> int:
     goose_env["GOOSE_SYSTEM_PROMPT_FILE_PATH"] = sysprompt_path
 
     ext_args = build_goose_ext_args(extensions, use_lean)
+
+    # --- Pre-flight MCP probe (unless skipped) ---
+    # Catches the class of bugs where Goose silently continues without the
+    # ai4math extension because subprocess spawn failed, imports errored, or
+    # the shim resolved the wrong python. Gives the user a loud, actionable
+    # error BEFORE starting the goose session instead of -32002 later.
+    if os.environ.get("AI4MATH_SKIP_PREFLIGHT") != "1":
+        preflight_env = {"LEAN_CHECKER_URL": goose_env.get("LEAN_CHECKER_URL", "")}
+        tools, perr = probe_mcp(env_vars=preflight_env, timeout=10)
+        if tools is None or perr:
+            print(
+                f"{RED}[ai4math]{RESET} MCP pre-flight FAIL: {perr}\n"
+                f"{RED}[ai4math]{RESET} Goose не сможет загрузить ai4math расширение — "
+                f"lean_check/web_search/pdf_* вернут -32002.\n"
+                f"{RED}[ai4math]{RESET} Диагностика: {REPO}/bin/ai4math doctor\n"
+                f"{RED}[ai4math]{RESET} Чинилка: rm -rf .venv .tools && git pull && ./setup.sh\n"
+                f"{RED}[ai4math]{RESET} Пропустить probe: AI4MATH_SKIP_PREFLIGHT=1 ai4math ...",
+                file=sys.stderr,
+            )
+            return 3
 
     banner(model_nick, int(goose_env["GOOSE_CONTEXT_LIMIT"]), lean_status, goose_mode)
 

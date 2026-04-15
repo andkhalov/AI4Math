@@ -235,6 +235,28 @@ if [ ! -e "$HOME/.local/bin/ai4math" ]; then
     esac
 fi
 
+# --- 7) Final pre-flight: ensure MCP subprocess actually loads ---
+# This catches silent failures (wrong python, missing deps, shim bugs) BEFORE
+# the user runs their first command and gets a confusing -32002 later.
+say "Pre-flight: проверяю что MCP ai4math реально стартует..."
+DOCTOR_OUT=$("$REPO/bin/ai4math" doctor 2>&1 || true)
+if echo "$DOCTOR_OUT" | grep -q "MCP ai4math: OK"; then
+    say "$(echo "$DOCTOR_OUT" | grep 'MCP ai4math:')"
+else
+    echo
+    warn "MCP ai4math НЕ отвечает на pre-flight probe."
+    warn "Вывод doctor:"
+    echo "$DOCTOR_OUT" | sed 's/^/    /'
+    echo
+    warn "Возможные причины:"
+    echo "    - .venv/bin/python не работает или отсутствует — попробуй rm -rf .venv && ./setup.sh"
+    echo "    - pypdf/mcp/requests пакеты не установились — проверь: .venv/bin/pip list | grep -E 'pypdf|mcp|requests'"
+    echo "    - bin/ai4math-mcp не исполняемый — fix: chmod +x bin/ai4math-mcp"
+    echo "    - MCP subprocess падает при импорте — прямой тест:"
+    echo "        .venv/bin/python src/ai4math_mcp.py < /dev/null &  # должен висеть, не падать"
+    die "Установка НЕ завершена — agent не получит свои инструменты."
+fi
+
 cat <<EOF
 
 ${GREEN}Готово.${RESET} Запуск:

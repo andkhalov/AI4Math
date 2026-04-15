@@ -328,15 +328,28 @@ def lean_health() -> str:
 
     Pings `{LEAN_CHECKER_URL}/health` and reports the version of the backend
     (SciLib remote or local lean-checker).
+
+    Uses a generous 60 s timeout to survive SciLib cold starts (the remote
+    service may take up to 90 seconds to warm up its Lake environment on
+    the first request after a period of inactivity).
     """
     if LEAN_DISABLED:
         return "Lean checker: disabled via AI4MATH_LEAN_DISABLED"
-    try:
-        resp = requests.get(f"{LEAN_CHECKER_URL}/health", timeout=10)
-        resp.raise_for_status()
-        return f"Lean checker ({LEAN_SCHEMA} @ {LEAN_CHECKER_URL}): {resp.json()}"
-    except Exception as e:
-        return f"ERROR: lean-checker health check failed: {type(e).__name__}: {e}"
+    # Retry once on timeout / connection error — cold-start spike is usually
+    # gone after the first request warms up the remote (~60-90 s).
+    last_err = "unknown"
+    for attempt in (1, 2):
+        try:
+            resp = requests.get(f"{LEAN_CHECKER_URL}/health", timeout=60)
+            resp.raise_for_status()
+            return f"Lean checker ({LEAN_SCHEMA} @ {LEAN_CHECKER_URL}): {resp.json()}"
+        except requests.Timeout:
+            last_err = f"Timeout attempt {attempt}/2 (cold start can take up to 90s)"
+            continue
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            break
+    return f"ERROR: lean-checker health check failed: {last_err}"
 
 
 # ========================================================================
