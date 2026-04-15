@@ -195,25 +195,15 @@ jobs:
           call "%GITHUB_WORKSPACE%\bin\ai4math.bat" run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
           if not exist hello.py (
             echo FAIL: hello.py missing after ai4math run
+            dir
             exit /b 1
           )
-          "%GITHUB_WORKSPACE%\.venv\Scripts\python.exe" hello.py > actual.txt
-          (
-            echo 0
-            echo 1
-            echo 1
-            echo 2
-            echo 3
-            echo 5
-            echo 8
-            echo 13
-            echo 21
-            echo 34
-          ) > expected.txt
-          fc actual.txt expected.txt
+          echo === hello.py contents ===
+          type hello.py
+          echo === end hello.py ===
+          "%GITHUB_WORKSPACE%\.venv\Scripts\python.exe" "%GITHUB_WORKSPACE%\.github\scripts\check_fib.py" hello.py
           if errorlevel 1 (
             echo FAIL: output mismatch
-            type actual.txt
             exit /b 1
           )
           echo PASS

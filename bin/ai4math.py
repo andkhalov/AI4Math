@@ -169,7 +169,8 @@ def banner(model_nick: str, context_limit: int, lean_status: str, goose_mode: st
     Mode:      {goose_mode}
     Lean 4:    {lean_status}
   ─────────────────────────────────────────────────────────────
-    Интенсив ШАД «AI4Math Intensive» — А. П. Халов
+    ШАД «AI4Math Intensive» — А. П. Халов, О. М. Атаева
+    МФТИ | Яндекс | ФИЦ ИУ РАН
     Команды:  /plan <task>  /mode <name>  /exit  /help
 """)
 
@@ -260,8 +261,8 @@ def usage() -> None:
     GOOSE_CONTEXT_LIMIT, GOOSE_MAX_TOKENS  — тюнинг Goose
     GOOSE_AUTO_COMPACT_THRESHOLD           — порог авто-компакции (0.8)
 
-Продукт разработан в рамках интенсива ШАД «AI4Math Intensive» —
-А. П. Халов | ФИЦ ИУ РАН | МФТИ | ШАД Яндекса.
+Продукт разработан в рамках интенсива ШАД «AI4Math Intensive».
+Авторы: А. П. Халов, О. М. Атаева — МФТИ | Яндекс | ФИЦ ИУ РАН.
 """)
 
 
