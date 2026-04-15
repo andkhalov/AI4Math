@@ -522,6 +522,79 @@ def _pdf_parse_pages(spec: str, total: int) -> list[int]:
 
 
 @mcp.tool()
+def pdf_download(url: str, dest_path: str = "literature/") -> str:
+    """Download a PDF file from a URL to a local path.
+
+    Streams the response and writes bytes directly — safe for large files
+    (no decoding, no HTML stripping). If `dest_path` ends with `/` or is an
+    existing directory, the filename is derived from the URL or the
+    Content-Disposition header. Otherwise `dest_path` is treated as the
+    exact target file path (parent dirs are created if missing).
+
+    Returns a human-readable summary with the resolved path and size.
+
+    Typical usage for literature review:
+        pdf_download("https://arxiv.org/pdf/2505.22954.pdf", "literature/")
+    """
+    if WEB_DISABLED:
+        return "ERROR: pdf_download is disabled via AI4MATH_WEB_DISABLED."
+    try:
+        r = requests.get(url, headers={"User-Agent": UA}, timeout=60, stream=True)
+        r.raise_for_status()
+    except Exception as e:
+        return _fmt_err("pdf_download", e)
+
+    ct = r.headers.get("Content-Type", "")
+    if "pdf" not in ct.lower() and not url.lower().endswith(".pdf"):
+        return (
+            f"ERROR: URL не похож на PDF (Content-Type: {ct}). "
+            "Если уверен что это PDF — сохрани вручную через shell: "
+            f"curl -L -o <path> '{url}'"
+        )
+
+    target = _pdf_resolve(dest_path)
+    # If dest_path ends with / or is a directory, pick a filename
+    if dest_path.endswith("/") or (target.exists() and target.is_dir()):
+        target.mkdir(parents=True, exist_ok=True)
+        # Try Content-Disposition filename, then URL basename, then fallback
+        fname = None
+        cd = r.headers.get("Content-Disposition", "")
+        if "filename=" in cd:
+            fname = cd.split("filename=", 1)[1].strip('"').strip().split(";")[0]
+        if not fname:
+            from urllib.parse import urlparse
+            fname = Path(urlparse(url).path).name or "download.pdf"
+        if not fname.lower().endswith(".pdf"):
+            fname += ".pdf"
+        target = target / fname
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with open(target, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+    except Exception as e:
+        return _fmt_err("pdf_download.write", e)
+
+    size = target.stat().st_size
+    # Quick sanity: PDF magic bytes
+    try:
+        with open(target, "rb") as f:
+            magic = f.read(5)
+        if not magic.startswith(b"%PDF-"):
+            target.unlink()
+            return (
+                f"ERROR: скачанный файл не похож на PDF (magic={magic!r}). "
+                "Возможно URL вернул HTML-страницу или редирект. Удалено."
+            )
+    except Exception:
+        pass
+    return f"OK: PDF сохранён в {target} ({size} байт)"
+
+
+@mcp.tool()
 def pdf_info(path: str) -> str:
     """Return page count, metadata, and file size for a local PDF."""
     p = _pdf_resolve(path)
