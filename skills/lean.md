@@ -1,3 +1,10 @@
+---
+name: lean
+description: Lean 4 — тактики, формализация, верификация через lean_check
+triggers: Lean, theorem, proof, Mathlib, norm_num, omega, ring, lean_check
+combines_with: latex (при формализации из статьи), literature (при поиске нужной теоремы)
+---
+
 # Lean 4 — тактики, workflow, типичные ошибки
 
 ## Инструменты

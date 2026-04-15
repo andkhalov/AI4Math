@@ -1,3 +1,10 @@
+---
+name: python
+description: Python-скрипты, модули, тесты, Jupyter — execution loop и venv discipline
+triggers: Python, .py, venv, pytest, script, notebook, jupyter
+combines_with: debug-loop, markdown, latex
+---
+
 # Python — паттерны и дисциплина выполнения
 
 ## Закрытый цикл выполнения (обязательно)

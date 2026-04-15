@@ -1,3 +1,10 @@
+---
+name: markdown
+description: GitHub-Flavored Markdown — README, документация, diary, обзоры
+triggers: Markdown, .md, README, GFM, documentation
+combines_with: python (при генерации README для пакета), literature (для review.md), latex (выбор формата)
+---
+
 # Markdown — паттерны и формат
 
 ## Когда Markdown, когда LaTeX

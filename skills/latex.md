@@ -1,3 +1,10 @@
+---
+name: latex
+description: LaTeX документы, статьи, теоремы/доказательства, pdflatex цикл
+triggers: LaTeX, .tex, статья, paper, preamble, theorem, pdflatex
+combines_with: markdown (при выборе формата), lean (для Lean-теорем в статье)
+---
+
 # LaTeX — паттерны и компиляция
 
 ## Когда использовать LaTeX vs Markdown

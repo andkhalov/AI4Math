@@ -148,7 +148,7 @@ def build_goose_ext_args(extensions: list[dict], use_lean: bool) -> list[str]:
 
 # ---------- banner ----------
 
-def banner(model_nick: str, context_limit: int, lean_status: str) -> None:
+def banner(model_nick: str, context_limit: int, lean_status: str, goose_mode: str = "auto") -> None:
     if os.environ.get("AI4MATH_QUIET") == "1":
         return
     model_labels = {
@@ -166,10 +166,11 @@ def banner(model_nick: str, context_limit: int, lean_status: str) -> None:
   ─────────────────────────────────────────────────────────────
     Модель:    {label}
     Контекст:  {ctx_k}k токенов, auto-compact при {threshold}
+    Mode:      {goose_mode}
     Lean 4:    {lean_status}
   ─────────────────────────────────────────────────────────────
     Интенсив ШАД «AI4Math Intensive» — А. П. Халов
-    Команды:  /exit — выйти,  /help — помощь Goose
+    Команды:  /plan <task>  /mode <name>  /exit  /help
 """)
 
 
@@ -280,7 +281,15 @@ def usage() -> None:
 
 Опции:
     -m, --model <name>    выбор модели: qwen (default), deepseek, gptoss
+    --mode <name>         goose режим: auto (default), smart_approve,
+                          approve, chat. В интерактиве: /mode <name> на лету.
     --no-lean             отключить lean_check (агент всё равно видит, graceful)
+
+В интерактивной сессии также доступны slash-команды Goose:
+    /plan <text>          составить план задачи через planner-модель
+    /mode <name>          переключить goose mode на лету
+    /exit                 выйти
+    /help                 помощь Goose
 
 Переменные окружения:
     YANDEX_AI_API, YANDEX_CLOUD_FOLDER     — из .env
@@ -306,12 +315,16 @@ MODEL_DEFAULTS = {
 }
 
 
+VALID_GOOSE_MODES = {"auto", "smart_approve", "approve", "chat"}
+
+
 def main(argv: list[str]) -> int:
     # Parse args — simple hand-rolled parser to keep stdlib-only
     args = argv[1:]
     model_nick = os.environ.get("AI4MATH_MODEL", "qwen")
     use_lean = True
     mode = "session"
+    goose_mode = os.environ.get("GOOSE_MODE", "auto")
     positional: list[str] = []
     i = 0
     while i < len(args):
@@ -323,6 +336,14 @@ def main(argv: list[str]) -> int:
             if i + 1 >= len(args):
                 die("--model: нужен аргумент")
             model_nick = args[i + 1]
+            i += 2
+            continue
+        if a in ("--goose-mode", "--mode"):
+            if i + 1 >= len(args):
+                die("--mode: нужен аргумент (auto|smart_approve|approve|chat)")
+            goose_mode = args[i + 1]
+            if goose_mode not in VALID_GOOSE_MODES:
+                die(f"--mode: неизвестный режим '{goose_mode}'. Допустимо: {', '.join(sorted(VALID_GOOSE_MODES))}")
             i += 2
             continue
         if a == "--no-lean":
@@ -378,7 +399,8 @@ def main(argv: list[str]) -> int:
     goose_env.setdefault("GOOSE_AUTO_COMPACT_THRESHOLD", "0.8")
     goose_env.setdefault("GOOSE_MAX_TOKENS", "16000")
     goose_env.setdefault("GOOSE_TEMPERATURE", "0.2")
-    goose_env.setdefault("LEAN_CHECKER_URL", "http://localhost:8888")
+    goose_env["GOOSE_MODE"] = goose_mode
+    goose_env.setdefault("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag")
     if not use_lean:
         goose_env["AI4MATH_LEAN_DISABLED"] = "1"
 
@@ -396,7 +418,7 @@ def main(argv: list[str]) -> int:
 
     ext_args = build_goose_ext_args(extensions, use_lean)
 
-    banner(model_nick, int(goose_env["GOOSE_CONTEXT_LIMIT"]), lean_status)
+    banner(model_nick, int(goose_env["GOOSE_CONTEXT_LIMIT"]), lean_status, goose_mode)
 
     if not GOOSE_BIN.exists():
         die(f"goose binary не найден по пути {GOOSE_BIN}. Запусти setup заново.")

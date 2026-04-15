@@ -1,3 +1,10 @@
+---
+name: literature
+description: Обзор литературы — web_search → pdf_download → анализ → literature/review.md
+triggers: обзор литературы, scientific papers, arxiv, peer-reviewed, review
+combines_with: markdown (для review.md), lean (при формализации найденных теорем), python (при анализе данных из работ)
+---
+
 # Обзор литературы — workflow
 
 ## Когда применяется

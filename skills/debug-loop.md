@@ -1,3 +1,10 @@
+---
+name: debug-loop
+description: Дисциплина закрытого цикла write→run→observe→fix для любого языка
+triggers: debug, bug, test, error, fix, verify, hypothesis, reproduce
+combines_with: python, latex, lean — применяется поверх любого языка
+---
+
 # Debug loop — дисциплина выполнения собственного кода
 
 ## Правило №1: написанный код должен быть выполнен

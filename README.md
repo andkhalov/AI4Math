@@ -49,14 +49,21 @@ git clone https://github.com/andkhalov/AI4Math.git && cd AI4Math && setup.bat
 
 ```bash
 # Linux / macOS / WSL
-ai4math                        # интерактивная сессия
-ai4math run "промпт"           # одна задача
-ai4math doctor                 # проверка окружения
+ai4math                              # интерактивная сессия
+ai4math -m deepseek                  # выбор модели
+ai4math --mode approve               # старт в режиме approve (тулы требуют подтверждения)
+ai4math run "промпт"                 # одна задача
+ai4math doctor                       # проверка окружения
+
+# В интерактивной сессии
+/plan <task>                         # планирование через planner-модель
+/mode approve                        # переключение режима на лету
+/exit                                # выход
 
 # Windows native
-bin\ai4math.bat                интерактивная сессия
-bin\ai4math.bat run "промпт"   одна задача
-bin\ai4math.bat doctor         проверка
+bin\ai4math.bat                      интерактивная сессия
+bin\ai4math.bat run "промпт"         одна задача
+bin\ai4math.bat doctor               проверка
 ```
 
 Ключ Yandex AI Studio получить здесь: [yandex.cloud/ru/docs/ai-studio/quickstart](https://yandex.cloud/ru/docs/ai-studio/quickstart).
@@ -65,20 +72,56 @@ bin\ai4math.bat doctor         проверка
 
 AI4Math использует **on-demand loading of topic-specific skills** — вместо монолитного промпта агент динамически подгружает короткие руководства из `skills/` когда задача затрагивает конкретную область. Это стандартный паттерн Claude Code в адаптации под Goose.
 
-Доступные skills (всё в `skills/*.md`, редактируются вручную для вашего проекта):
+Каждый skill — markdown файл с Claude-Code-совместимым YAML frontmatter:
 
-| Skill | Когда грузится |
+```markdown
+---
+name: python
+description: Python-скрипты, модули, тесты, Jupyter — execution loop и venv discipline
+triggers: Python, .py, venv, pytest, script, notebook, jupyter
+combines_with: debug-loop, markdown, latex
+---
+
+# Python — паттерны и дисциплина выполнения
+...
+```
+
+`list_skills()` показывает все описания и совместимости, `load_skill(name)` отдаёт полное содержимое.
+
+Доступные skills (`skills/*.md`):
+
+| Skill | Описание |
 |---|---|
-| `python` | Python-скрипты, модули, Jupyter notebooks, тесты |
-| `latex` | LaTeX-документы, статьи, теоремы/доказательства в формате tex |
-| `markdown` | README, документация, diary, обзоры, GFM |
-| `lean` | Lean 4 код, тактики, формализация |
-| `literature` | Обзор литературы, скачивание PDF, анализ работ |
-| `debug-loop` | Сложный debug, run-and-verify дисциплина |
+| `python` | Python-скрипты, модули, тесты, Jupyter — execution loop и venv discipline |
+| `latex` | LaTeX документы, статьи, теоремы/доказательства, pdflatex цикл |
+| `markdown` | GitHub-Flavored Markdown — README, документация, diary, обзоры |
+| `lean` | Lean 4 — тактики, формализация, верификация через lean_check |
+| `literature` | Обзор литературы — web_search → pdf_download → анализ → literature/review.md |
+| `debug-loop` | Дисциплина закрытого цикла write→run→observe→fix для любого языка |
 
-Агент сам вызывает `load_skill("python")` перед тем как писать Python-код, `load_skill("latex")` перед компиляцией tex, и т.д. Recipe instructions содержат короткий каталог тулов и правило «сначала skill, потом делай», детали — внутри skills. Это держит core system prompt ~250 строк вместо 600+, ускоряет inference и упрощает обновление best-practices без редактирования основного recipe.
+**Комбинирование skills**. Skills можно загружать последовательно, несколько за сессию. Типичные комбинации:
 
-Можно добавлять собственные skills: положи файл `skills/<name>.md` и вызови `load_skill("<name>")` — агент подхватит. Полезно для проект-специфичных conventions.
+- **python + debug-loop** — любой код с тестами и отладкой
+- **latex + lean** — научная статья с формализованными теоремами
+- **markdown + literature** — обзор литературы с `review.md`
+- **python + latex** — графики matplotlib в tex-документ
+
+**Проект-специфичные skills**: положи файл `skills/<name>.md` с frontmatter в корень AI4Math или свой путь через `AI4MATH_SKILLS_DIR`, и агент увидит его через `list_skills`/`load_skill`. Полезно для кастомных convention'ов, internal APIs, и т.п.
+
+### Планирование и approval modes (нативно в Goose)
+
+**Планирование сложных задач** — `/plan <task>` прямо в интерактивной сессии. Goose создаёт план через отдельную planner-модель (`GOOSE_PLANNER_MODEL`/`GOOSE_PLANNER_PROVIDER`, по умолчанию та же модель), показывает пользователю, и после согласия исполняет. Рекомендуемый workflow: `/mode approve` → подготовка контекста → `/plan <task>` → review → accept → auto-исполнение.
+
+**Режимы исполнения** — 4 варианта через `GOOSE_MODE` / флаг `--mode` / slash-команду `/mode <name>`:
+
+| Режим | Поведение |
+|---|---|
+| `auto` (default) | Все tool calls выполняются автоматически |
+| `smart_approve` | Read-only (ls, cat, pdf_read) автоматом; write/exec спрашивают |
+| `approve` | Каждый tool call требует подтверждения |
+| `chat` | Никаких tool calls — только диалог и план действий |
+
+Переключение на лету: `/mode approve` в интерактивной сессии. При старте: `ai4math --mode approve`.
 
 ### Обновление существующей установки
 

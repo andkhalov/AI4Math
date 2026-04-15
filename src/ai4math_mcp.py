@@ -124,27 +124,72 @@ else:
     SKILLS_DIR = (Path(__file__).resolve().parent.parent / "skills").resolve()
 
 
+def _parse_skill_frontmatter(path: Path) -> dict:
+    """Parse YAML-like frontmatter from a skill file.
+
+    We keep a tiny custom parser to avoid adding a yaml dependency for this
+    one feature (pypdf + requests are enough). Format:
+
+        ---
+        name: foo
+        description: ...
+        triggers: comma, separated, words
+        combines_with: ...
+        ---
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return {}
+    if not text.startswith("---\n"):
+        return {}
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return {}
+    out: dict = {}
+    for line in text[4:end].splitlines():
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        out[k.strip()] = v.strip()
+    return out
+
+
 @mcp.tool()
 def list_skills() -> str:
-    """List available topic-specific skill files.
+    """List available topic-specific skill files with their descriptions.
 
     Skills live in `AI4MATH_SKILLS_DIR` (default: `<repo>/skills/`). Each
     `.md` file is a self-contained guide for one topic. Use `load_skill(name)`
     to pull the content when you start a task in that area (Python, LaTeX,
     Markdown, Lean, literature review, debugging, …).
+
+    Output includes description, trigger keywords, and which other skills
+    combine well — so you can pick the right skill without reading each file.
     """
     if not SKILLS_DIR.exists():
         return f"ERROR: skills dir не найден: {SKILLS_DIR}"
     items = []
     for p in sorted(SKILLS_DIR.glob("*.md")):
-        try:
-            first_line = p.read_text(encoding="utf-8").splitlines()[0].lstrip("# ").strip()
-        except Exception:
-            first_line = ""
-        items.append(f"  - {p.stem:20s} {first_line}")
+        fm = _parse_skill_frontmatter(p)
+        name = fm.get("name") or p.stem
+        desc = fm.get("description") or ""
+        triggers = fm.get("triggers") or ""
+        combines = fm.get("combines_with") or ""
+        entry = f"  - {name}\n    description:   {desc}"
+        if triggers:
+            entry += f"\n    triggers:      {triggers}"
+        if combines:
+            entry += f"\n    combines with: {combines}"
+        items.append(entry)
     if not items:
         return f"{SKILLS_DIR}: (пусто)"
-    return f"Доступные skills в {SKILLS_DIR}:\n" + "\n".join(items)
+    return (
+        f"Доступные skills в {SKILLS_DIR}:\n\n"
+        + "\n\n".join(items)
+        + "\n\nВызывай `load_skill(<name>)` чтобы прочитать полное содержимое skill'а. "
+        + "Можно комбинировать несколько skills последовательно для сложных задач."
+    )
 
 
 @mcp.tool()
