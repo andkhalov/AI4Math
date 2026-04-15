@@ -111,7 +111,16 @@ instructions: |
 
 ### 3. src/ai4math_mcp.py — единый MCP сервер
 
-`FastMCP("ai4math")` с 13 инструментами, stdio транспорт. Запускается Goose'ом через `bin/ai4math-mcp`.
+`FastMCP("ai4math")` с 15 инструментами, stdio транспорт. Запускается Goose'ом через `bin/ai4math-mcp`.
+
+**Skills — modular on-demand loading** (2):
+
+- `list_skills()` — enumerate topic-specific guides available in `$AI4MATH_SKILLS_DIR` (default `<repo>/skills/`)
+- `load_skill(name)` — read and return full content of `skills/<name>.md`
+
+Skills are short (~100-200 lines) markdown files covering one domain each: `python.md`, `latex.md`, `markdown.md`, `lean.md`, `literature.md`, `debug-loop.md`. Recipe instructions match task types to skill names and require the agent to call `load_skill(...)` before starting work in that domain. This keeps the core system prompt ~250 lines instead of 600+ and enables hot-swapping best-practices without editing the recipe.
+
+Project-specific skills can be added as additional `.md` files in the skills directory — no code changes needed. Path is overridable via `AI4MATH_SKILLS_DIR` env var.
 
 **Lean верификация** (2):
 
@@ -133,8 +142,9 @@ instructions: |
 - `web_search(query, n)` — Brave Search API если задан `BRAVE_API_KEY`, иначе DuckDuckGo HTML scrape
 - `web_fetch(url, max_chars)` — HTTP GET, HTML → plain text, truncate
 
-**PDF** (3) — через `pypdf`:
+**PDF** (4) — через `pypdf` + `requests` streaming:
 
+- `pdf_download(url, dest_path)` — binary-safe загрузка PDF с проверкой `%PDF-` magic bytes (для HTML-редиректов удаляет файл)
 - `pdf_info(path)` — metadata, pages, size
 - `pdf_read(path, pages, max_chars)` — extract text по 1-indexed спеку `"1-5,10"`
 - `pdf_search(path, query, context)` — подстрочный поиск
@@ -142,8 +152,9 @@ instructions: |
 **Env-toggles**:
 
 - `AI4MATH_LEAN_DISABLED=1` — `lean_check` / `lean_health` возвращают "disabled"
-- `AI4MATH_WEB_DISABLED=1` — `web_*` возвращают "disabled"
+- `AI4MATH_WEB_DISABLED=1` — `web_*` и `pdf_download` возвращают "disabled"
 - `AI4MATH_LEAN_SCHEMA=scilib|lean-checker` — явный override автодетекта
+- `AI4MATH_SKILLS_DIR=/path/to/skills/` — переопределить путь skill-директории
 
 ### 4. Внешние зависимости
 

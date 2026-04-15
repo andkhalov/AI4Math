@@ -61,6 +61,25 @@ bin\ai4math.bat doctor         проверка
 
 Ключ Yandex AI Studio получить здесь: [yandex.cloud/ru/docs/ai-studio/quickstart](https://yandex.cloud/ru/docs/ai-studio/quickstart).
 
+### Модульные skills
+
+AI4Math использует **on-demand loading of topic-specific skills** — вместо монолитного промпта агент динамически подгружает короткие руководства из `skills/` когда задача затрагивает конкретную область. Это стандартный паттерн Claude Code в адаптации под Goose.
+
+Доступные skills (всё в `skills/*.md`, редактируются вручную для вашего проекта):
+
+| Skill | Когда грузится |
+|---|---|
+| `python` | Python-скрипты, модули, Jupyter notebooks, тесты |
+| `latex` | LaTeX-документы, статьи, теоремы/доказательства в формате tex |
+| `markdown` | README, документация, diary, обзоры, GFM |
+| `lean` | Lean 4 код, тактики, формализация |
+| `literature` | Обзор литературы, скачивание PDF, анализ работ |
+| `debug-loop` | Сложный debug, run-and-verify дисциплина |
+
+Агент сам вызывает `load_skill("python")` перед тем как писать Python-код, `load_skill("latex")` перед компиляцией tex, и т.д. Recipe instructions содержат короткий каталог тулов и правило «сначала skill, потом делай», детали — внутри skills. Это держит core system prompt ~250 строк вместо 600+, ускоряет inference и упрощает обновление best-practices без редактирования основного recipe.
+
+Можно добавлять собственные skills: положи файл `skills/<name>.md` и вызови `load_skill("<name>")` — агент подхватит. Полезно для проект-специфичных conventions.
+
 ### Обновление существующей установки
 
 Если у тебя уже стоит прошлая версия AI4Math и нужно обновиться до текущей (после git pull из репо):

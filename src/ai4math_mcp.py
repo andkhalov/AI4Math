@@ -112,6 +112,72 @@ def _truncate(s: str | None, n: int = CHARS_PER_HIT) -> str:
 
 
 # ========================================================================
+# Modular skills — on-demand loading of topic-specific guidance
+# ========================================================================
+
+# Skills directory: overridable via AI4MATH_SKILLS_DIR. By default points at
+# the skills/ folder next to this Python file (../skills relative to src/).
+_SKILLS_DIR_ENV = os.environ.get("AI4MATH_SKILLS_DIR")
+if _SKILLS_DIR_ENV:
+    SKILLS_DIR = Path(_SKILLS_DIR_ENV).expanduser().resolve()
+else:
+    SKILLS_DIR = (Path(__file__).resolve().parent.parent / "skills").resolve()
+
+
+@mcp.tool()
+def list_skills() -> str:
+    """List available topic-specific skill files.
+
+    Skills live in `AI4MATH_SKILLS_DIR` (default: `<repo>/skills/`). Each
+    `.md` file is a self-contained guide for one topic. Use `load_skill(name)`
+    to pull the content when you start a task in that area (Python, LaTeX,
+    Markdown, Lean, literature review, debugging, …).
+    """
+    if not SKILLS_DIR.exists():
+        return f"ERROR: skills dir не найден: {SKILLS_DIR}"
+    items = []
+    for p in sorted(SKILLS_DIR.glob("*.md")):
+        try:
+            first_line = p.read_text(encoding="utf-8").splitlines()[0].lstrip("# ").strip()
+        except Exception:
+            first_line = ""
+        items.append(f"  - {p.stem:20s} {first_line}")
+    if not items:
+        return f"{SKILLS_DIR}: (пусто)"
+    return f"Доступные skills в {SKILLS_DIR}:\n" + "\n".join(items)
+
+
+@mcp.tool()
+def load_skill(name: str) -> str:
+    """Read a topic-specific skill file and return its full content.
+
+    Argument `name` is the skill filename without extension, e.g. `python`,
+    `latex`, `markdown`, `lean`, `literature`, `debug-loop`. Call this BEFORE
+    writing code / documents in the corresponding domain so that your output
+    follows the current best practices encoded in the skill file.
+
+    Skills are short (1-3 KB each) and cheap to load. Prefer loading a
+    skill over relying on general knowledge — the skill files are the
+    project's canonical source of truth for formatting/style/workflow.
+    """
+    if not SKILLS_DIR.exists():
+        return f"ERROR: skills dir не найден: {SKILLS_DIR}"
+    safe = Path(name).name.replace(".md", "")  # guard against path traversal
+    p = SKILLS_DIR / f"{safe}.md"
+    if not p.exists():
+        available = sorted(q.stem for q in SKILLS_DIR.glob("*.md"))
+        return (
+            f"ERROR: skill '{safe}' не найден. Доступные: "
+            + ", ".join(available)
+        )
+    try:
+        content = p.read_text(encoding="utf-8")
+    except Exception as e:
+        return _fmt_err(f"load_skill({safe})", e)
+    return f"# Skill: {safe}\n# File: {p}\n\n{content}"
+
+
+# ========================================================================
 # Lean verification (SciLib /check primary, legacy lean-checker fallback)
 # ========================================================================
 
