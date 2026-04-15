@@ -266,8 +266,28 @@ def _lean_format_err_legacy(payload: dict) -> str:
     return "\n".join(lines)
 
 
+# Short timeouts: verification endpoint may be temporarily unreachable
+# (SciLib Funnel issues, network outages, cold start). Fail fast so the
+# agent can decide to skip verification and continue with the task
+# rather than blocking the whole session on one slow HTTP call.
+LEAN_CONNECT_TIMEOUT = 5      # TCP connect phase — should be near-instant
+LEAN_READ_TIMEOUT = 15        # first response body byte — SciLib normally 20-50 ms after warmup
+
+
+def _is_remote_unavailable(exc: Exception) -> bool:
+    """Heuristic: does this exception look like the checker is just unreachable
+    right now (vs. a real Lean compilation error)?"""
+    import socket
+    import ssl
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout, socket.timeout, ssl.SSLError)):
+        return True
+    # requests wraps these; match on class names as a last resort
+    name = type(exc).__name__
+    return name in {"ConnectionError", "ReadTimeout", "ConnectTimeout", "SSLError", "SSLEOFError"}
+
+
 @mcp.tool()
-def lean_check(code: str, timeout: int = 60) -> str:
+def lean_check(code: str, timeout: int = 15) -> str:
     """Type-check and compile Lean 4 code against Mathlib.
 
     Pass a Lean 4 source snippet as `code`. Mathlib is available; do not
@@ -280,9 +300,19 @@ def lean_check(code: str, timeout: int = 60) -> str:
       * URL contains `/grag` → SciLib /check schema (default remote endpoint)
       * otherwise            → legacy andkhalov/lean-checker schema (local Docker)
 
-    Returns `OK: ...` on success or a structured error describing the
-    failure class (TACTIC_FAILURE, PARSE_ERROR, GOAL_NOT_CLOSED, TIMEOUT,
-    SANITY_CHECK_FAILED for SciLib; line/column diagnostics for legacy).
+    Returns one of:
+      * `OK: ...` — code compiles (normal success path)
+      * `ERROR [<class>]: ...` — Lean rejected it (PARSE_ERROR, TACTIC_FAILURE,
+        GOAL_NOT_CLOSED, TIMEOUT, SANITY_CHECK_FAILED for SciLib; diagnostics
+        with line/col coordinates for legacy)
+      * `OFFLINE: ...` — verification endpoint temporarily unreachable
+        (connection refused, TLS handshake failure, read timeout). The agent
+        should acknowledge this to the user and continue the task without
+        formal verification, not treat it as a Lean error.
+
+    Uses short timeouts (~15 s) so one slow HTTP call never blocks a
+    session. Retries once on transient failure. If both attempts fail,
+    returns OFFLINE and the agent decides what to do next.
     """
     if LEAN_DISABLED:
         return "ERROR: lean_check is disabled via AI4MATH_LEAN_DISABLED."
@@ -290,23 +320,29 @@ def lean_check(code: str, timeout: int = 60) -> str:
     # Build request + URL per schema
     if LEAN_SCHEMA == "scilib":
         url = f"{LEAN_CHECKER_URL}/check"
-        body = {"lean_code": code, "timeout": max(5, min(120, int(timeout)))}
+        body = {"lean_code": code, "timeout": max(5, min(60, int(timeout)))}
     else:
         url = f"{LEAN_CHECKER_URL}/check"
         body = {"code": code, "import_line": "import Mathlib"}
 
-    try:
-        resp = requests.post(url, json=body, timeout=max(timeout + 10, 30))
-    except requests.ConnectionError:
-        hint = (
-            "Default remote endpoint: https://scilib.tailb97193.ts.net/grag — "
-            "проверь сеть. Для локального варианта: ./setup.sh --with-lean-local"
-            if LEAN_SCHEMA == "scilib"
-            else "Local lean-checker: cd vendor/lean-checker && docker compose up -d"
+    read_to = max(int(timeout), LEAN_READ_TIMEOUT)
+    last_err = None
+    for attempt in (1, 2):
+        try:
+            resp = requests.post(url, json=body, timeout=(LEAN_CONNECT_TIMEOUT, read_to))
+            break
+        except Exception as e:
+            if _is_remote_unavailable(e):
+                last_err = f"{type(e).__name__}: {str(e)[:200]}"
+                continue
+            return f"ERROR: unexpected exception from Lean checker: {type(e).__name__}: {e}"
+    else:
+        return (
+            f"OFFLINE: Lean verification endpoint unreachable "
+            f"({LEAN_CHECKER_URL}). Last error: {last_err}. "
+            "Продолжай задачу без формальной проверки; сообщи пользователю "
+            "одной фразой что lean_check временно недоступен."
         )
-        return f"ERROR: cannot reach Lean checker at {LEAN_CHECKER_URL}. {hint}"
-    except requests.Timeout:
-        return f"ERROR: Lean checker timed out after {timeout} s."
 
     if resp.status_code != 200:
         return f"ERROR: Lean checker HTTP {resp.status_code}: {resp.text[:500]}"
@@ -324,32 +360,40 @@ def lean_check(code: str, timeout: int = 60) -> str:
 
 @mcp.tool()
 def lean_health() -> str:
-    """Check that the Lean checker service is up.
+    """Quick probe of the Lean checker endpoint.
 
-    Pings `{LEAN_CHECKER_URL}/health` and reports the version of the backend
-    (SciLib remote or local lean-checker).
+    Uses a short 5-second timeout — this is a connectivity check, not a
+    warmup. Returns one of:
+      * `OK: {...}` — service up
+      * `OFFLINE: ...` — service unreachable (connect / TLS / timeout)
+      * `ERROR: ...` — unexpected failure
 
-    Uses a generous 60 s timeout to survive SciLib cold starts (the remote
-    service may take up to 90 seconds to warm up its Lake environment on
-    the first request after a period of inactivity).
+    If `OFFLINE`, the agent should try calling `lean_check` anyway with
+    actual code (sometimes the verification path works even when /health
+    doesn't) and only fall back to skipping verification if that also fails.
     """
     if LEAN_DISABLED:
         return "Lean checker: disabled via AI4MATH_LEAN_DISABLED"
-    # Retry once on timeout / connection error — cold-start spike is usually
-    # gone after the first request warms up the remote (~60-90 s).
-    last_err = "unknown"
+    last_err = None
     for attempt in (1, 2):
         try:
-            resp = requests.get(f"{LEAN_CHECKER_URL}/health", timeout=60)
+            resp = requests.get(
+                f"{LEAN_CHECKER_URL}/health",
+                timeout=(LEAN_CONNECT_TIMEOUT, 5),
+            )
             resp.raise_for_status()
-            return f"Lean checker ({LEAN_SCHEMA} @ {LEAN_CHECKER_URL}): {resp.json()}"
-        except requests.Timeout:
-            last_err = f"Timeout attempt {attempt}/2 (cold start can take up to 90s)"
-            continue
+            return f"OK: Lean checker ({LEAN_SCHEMA} @ {LEAN_CHECKER_URL}): {resp.json()}"
         except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
-            break
-    return f"ERROR: lean-checker health check failed: {last_err}"
+            if _is_remote_unavailable(e):
+                last_err = f"{type(e).__name__}: {str(e)[:150]}"
+                continue
+            return f"ERROR: unexpected health-check failure: {type(e).__name__}: {e}"
+    return (
+        f"OFFLINE: {LEAN_CHECKER_URL}/health unreachable. Last error: {last_err}. "
+        "Попробуй вызвать lean_check напрямую — иногда endpoint отвечает на /check "
+        "даже когда /health падает. Если lean_check тоже OFFLINE — продолжай задачу "
+        "без формальной верификации."
+    )
 
 
 # ========================================================================
