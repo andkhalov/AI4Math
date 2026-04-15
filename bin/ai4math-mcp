@@ -1,4 +1,20 @@
 #!/usr/bin/env bash
 # Unified AI4Math MCP stdio server — lean + search + web + pdf in one process.
-REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-exec "$REPO/.venv/bin/python" "$REPO/src/ai4math_mcp.py" "$@"
+# Portable symlink resolution: GNU `readlink -f` first, `greadlink -f` for macOS
+# with coreutils, then manual BSD-compatible loop as the last-resort fallback.
+if readlink -f "${BASH_SOURCE[0]}" >/dev/null 2>&1; then
+    SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+elif command -v greadlink >/dev/null 2>&1; then
+    SELF="$(greadlink -f "${BASH_SOURCE[0]}")"
+else
+    SELF="${BASH_SOURCE[0]}"
+    while [ -L "$SELF" ]; do
+        TARGET="$(readlink "$SELF")"
+        [[ "$TARGET" = /* ]] || TARGET="$(dirname "$SELF")/$TARGET"
+        SELF="$TARGET"
+    done
+fi
+REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
+PY="$REPO/.venv/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3 || command -v python)"
+exec "$PY" "$REPO/src/ai4math_mcp.py" "$@"

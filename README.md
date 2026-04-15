@@ -61,6 +61,33 @@ bin\ai4math.bat doctor         проверка
 
 Ключ Yandex AI Studio получить здесь: [yandex.cloud/ru/docs/ai-studio/quickstart](https://yandex.cloud/ru/docs/ai-studio/quickstart).
 
+### Обновление существующей установки
+
+Если у тебя уже стоит прошлая версия AI4Math и нужно обновиться до текущей (после git pull из репо):
+
+```bash
+cd AI4Math
+git pull origin main
+# Полностью пересоздать .venv и переустановить Goose — гарантирует что старые
+# shim-скрипты и устаревшие MCP-сервера не мешают новой версии:
+rm -rf .venv .tools
+./setup.sh
+```
+
+`.env` останется без изменений — wizard пропустится, потому что файл существует. Если хочешь заодно переконфигурировать API-ключ или default-модель, перед `./setup.sh` удали и `.env`.
+
+**Важно**: после обновления запусти `ai4math doctor` — новая версия doctor проверяет что MCP-сервер `ai4math` реально отвечает (probe через JSON-RPC `tools/list`), а не только пингует Lean endpoint. Если doctor показывает `MCP ai4math: НЕ ОТВЕЧАЕТ` — значит расширение не загружается (например, `bin/ai4math-mcp` не исполняемый, нет `.venv/bin/python`, или система не может запустить Goose-бинарь). Без работающего MCP агент будет **галлюцинировать** `lean_check`/`web_search` из текста системного промпта и возвращать `-32002 Tool not found` при реальных вызовах.
+
+### Переустановка на новой машине
+
+Та же одна команда из секции выше. Если у тебя нет старого репо — просто клонируй и запускай:
+
+```bash
+git clone https://github.com/andkhalov/AI4Math.git && cd AI4Math && ./setup.sh
+```
+
+`.env` создастся через wizard заново. Ключ Yandex AI Studio можно скопировать из старого `.env` на исходной машине.
+
 ---
 
 ## Зачем это

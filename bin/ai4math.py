@@ -202,7 +202,58 @@ def doctor() -> None:
             print(f"python venv: ошибка: {e}")
     else:
         print(f"python venv: НЕ НАЙДЕН ({venv_py})")
-    lean_url = env.get("LEAN_CHECKER_URL", "http://localhost:8888")
+
+    # --- MCP subprocess smoke test: ключевой индикатор, что extensions реально
+    # грузятся Goose'ом. Probe'им `tools/list` через stdio JSON-RPC.
+    mcp_shim = REPO / "bin" / ("ai4math-mcp.bat" if IS_WINDOWS else "ai4math-mcp")
+    if mcp_shim.exists():
+        try:
+            import json
+            probe_env = os.environ.copy()
+            probe_env.setdefault("LEAN_CHECKER_URL", env.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag"))
+            proc = subprocess.Popen(
+                [str(mcp_shim)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                env=probe_env, text=True,
+            )
+            init = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                               "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                                          "clientInfo": {"name": "doctor", "version": "0"}}})
+            initialized = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+            list_req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+            proc.stdin.write(init + "\n")
+            proc.stdin.write(initialized + "\n")
+            proc.stdin.write(list_req + "\n")
+            proc.stdin.flush()
+            tools = None
+            import time as _t
+            deadline = _t.time() + 8
+            while _t.time() < deadline:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                try:
+                    msg = json.loads(line)
+                except Exception:
+                    continue
+                if msg.get("id") == 2:
+                    tools = msg.get("result", {}).get("tools", [])
+                    break
+            proc.terminate()
+            if tools is not None:
+                names = ", ".join(t["name"] for t in tools)
+                print(f"MCP ai4math: OK ({len(tools)} tools: {names})")
+            else:
+                err = proc.stderr.read() if proc.stderr else ""
+                print(f"MCP ai4math: НЕ ОТВЕЧАЕТ / subprocess failed")
+                if err:
+                    print(f"  stderr: {err.strip()[:500]}")
+        except Exception as e:
+            print(f"MCP ai4math: ошибка probe: {type(e).__name__}: {e}")
+    else:
+        print(f"MCP ai4math: shim не найден ({mcp_shim})")
+
+    lean_url = env.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag")
     try:
         import urllib.request
         req = urllib.request.Request(f"{lean_url}/health", headers={"User-Agent": "ai4math-doctor"})
