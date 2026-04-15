@@ -520,20 +520,35 @@ def lean_search_scilib(lean_code: str, num_results: int = 10) -> str:
     expansion + Qdrant vector search. Zero LLM calls. Best used when you
     already have a Lean goal and want concrete lemmas to try.
     """
-    try:
-        r = requests.post(
-            f"{SCILIB}/search",
-            json={
-                "lean_code": lean_code,
-                "num_results": min(num_results, 50),
-                "include_vector": True,
-            },
-            timeout=60,
+    body = {
+        "lean_code": lean_code,
+        "num_results": min(num_results, 50),
+        "include_vector": True,
+    }
+    last_err = None
+    data = None
+    for attempt in (1, 2):
+        try:
+            r = requests.post(
+                f"{SCILIB}/search",
+                json=body,
+                timeout=(LEAN_CONNECT_TIMEOUT, 20),
+            )
+            r.raise_for_status()
+            data = r.json()
+            break
+        except Exception as e:
+            if _is_remote_unavailable(e):
+                last_err = f"{type(e).__name__}: {str(e)[:150]}"
+                continue
+            return _fmt_err("scilib", e)
+    if data is None:
+        return (
+            f"OFFLINE: SciLib GraphRAG endpoint unreachable ({SCILIB}). "
+            f"Last error: {last_err}. Попробуй lean_search_loogle или "
+            "lean_search_leansearch как альтернативу, либо продолжай "
+            "без premise retrieval."
         )
-        r.raise_for_status()
-        data = r.json()
-    except Exception as e:
-        return _fmt_err("scilib", e)
     pieces = []
     if data.get("hints_text"):
         pieces.append(
