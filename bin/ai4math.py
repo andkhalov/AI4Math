@@ -208,7 +208,8 @@ def doctor() -> None:
     # --- MCP subprocess smoke test via shared probe_mcp() ---
     lean_url_env = {"LEAN_CHECKER_URL": env.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag")}
     tools, err = probe_mcp(env_vars=lean_url_env, timeout=8)
-    if tools is not None and not err:
+    mcp_ok = tools is not None and not err
+    if mcp_ok:
         print(f"MCP ai4math: OK ({len(tools)} tools: {', '.join(tools)})")
     else:
         print(f"MCP ai4math: FAIL — {err}")
@@ -226,7 +227,9 @@ def doctor() -> None:
                 print(f"lean-checker ({lean_url}): HTTP {resp.status}")
     except Exception:
         print(f"lean-checker ({lean_url}): DOWN (lean_check вернёт graceful failure)")
-    sys.exit(0)
+    # Exit non-zero if MCP failed — otherwise CI / users miss critical breakage.
+    # Lean checker DOWN is intentionally not fatal (graceful OFFLINE fallback).
+    sys.exit(0 if mcp_ok else 2)
 
 
 # ---------- help ----------
