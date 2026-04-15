@@ -53,27 +53,98 @@ done
 say "=== AI4Math setup ==="
 
 # --- 0) System dependencies ---
+# libgomp1 (GCC OpenMP runtime) is a hard-link requirement of the Goose binary
+# on Linux — ldd shows libgomp.so.1 in the NEEDED section. Dev machines
+# almost always have it via build-essential/python3-dev transitive deps, but
+# minimal Docker images (python:3.12-slim etc.) strip it.
+
 MISSING=()
 for cmd in python3 curl git tar; do
     command -v "$cmd" >/dev/null 2>&1 || MISSING+=("$cmd")
 done
 command -v bzip2 >/dev/null 2>&1 || MISSING+=("bzip2")
-# Goose binary (Rust) needs libgomp1 at runtime on Linux
+
+# libgomp check — only Linux. macOS doesn't need it (Goose uses different
+# runtime), Windows bundles it with goose.exe.
+NEED_LIBGOMP=0
 if [ "$(uname -s)" = "Linux" ]; then
     if ! ldconfig -p 2>/dev/null | grep -q "libgomp.so.1"; then
+        NEED_LIBGOMP=1
         MISSING+=("libgomp1")
     fi
 fi
+
+# Helper: try to install Linux deps automatically without bothering the user
+# when we can — running as root (typical in Docker) or with passwordless sudo.
+try_install_linux_deps() {
+    local pkgs=("$@")
+    [ ${#pkgs[@]} -eq 0 ] && return 0
+    # Map libgomp1 → correct package name per distro
+    local apt_pkgs=()
+    local dnf_pkgs=()
+    for p in "${pkgs[@]}"; do
+        apt_pkgs+=("$p")
+        # dnf calls it just 'libgomp'
+        if [ "$p" = "libgomp1" ]; then
+            dnf_pkgs+=("libgomp")
+        else
+            dnf_pkgs+=("$p")
+        fi
+    done
+    if command -v apt-get >/dev/null 2>&1; then
+        local apt_cmd=(apt-get install -y --no-install-recommends "${apt_pkgs[@]}")
+        if [ "$(id -u)" = "0" ]; then
+            say "Устанавливаю через apt-get: ${apt_pkgs[*]}"
+            apt-get update -qq >/dev/null 2>&1 || true
+            "${apt_cmd[@]}" >/dev/null 2>&1 && return 0
+        elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            say "Устанавливаю через sudo apt-get: ${apt_pkgs[*]}"
+            sudo apt-get update -qq >/dev/null 2>&1 || true
+            sudo "${apt_cmd[@]}" >/dev/null 2>&1 && return 0
+        fi
+    elif command -v dnf >/dev/null 2>&1; then
+        if [ "$(id -u)" = "0" ]; then
+            say "Устанавливаю через dnf: ${dnf_pkgs[*]}"
+            dnf install -y "${dnf_pkgs[@]}" >/dev/null 2>&1 && return 0
+        elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            say "Устанавливаю через sudo dnf: ${dnf_pkgs[*]}"
+            sudo dnf install -y "${dnf_pkgs[@]}" >/dev/null 2>&1 && return 0
+        fi
+    fi
+    return 1
+}
+
 if [ ${#MISSING[@]} -gt 0 ]; then
     warn "Не хватает системных зависимостей: ${MISSING[*]}"
+    if [ "$(uname -s)" = "Linux" ]; then
+        if try_install_linux_deps "${MISSING[@]}"; then
+            say "Зависимости установлены."
+            MISSING=()
+        fi
+    fi
+fi
+
+if [ ${#MISSING[@]} -gt 0 ]; then
+    warn "Не удалось установить автоматически. Поставь вручную:"
     if command -v apt-get >/dev/null 2>&1; then
         echo "    Debian/Ubuntu: sudo apt-get install -y ${MISSING[*]}"
     elif command -v dnf >/dev/null 2>&1; then
-        echo "    Fedora/RHEL: sudo dnf install -y ${MISSING[*]} (libgomp может быть как libgomp)"
+        DNF_HINT="${MISSING[*]}"
+        DNF_HINT="${DNF_HINT//libgomp1/libgomp}"
+        echo "    Fedora/RHEL: sudo dnf install -y $DNF_HINT"
     elif command -v brew >/dev/null 2>&1; then
-        echo "    macOS: libgomp приходит с gcc — brew install gcc git curl"
+        echo "    macOS: brew install gcc git curl (libgomp приходит с gcc)"
+    elif [ "$(uname -s)" = "Darwin" ]; then
+        echo "    macOS: поставь Homebrew и выполни brew install gcc git curl"
     fi
-    die "Доставь зависимости и запусти setup.sh заново."
+    die "После установки зависимостей запусти ./setup.sh заново."
+fi
+
+# Re-verify libgomp after potential auto-install
+if [ "$NEED_LIBGOMP" = "1" ] && [ "$(uname -s)" = "Linux" ]; then
+    if ! ldconfig -p 2>/dev/null | grep -q "libgomp.so.1"; then
+        die "libgomp.so.1 всё ещё не найдена после установки libgomp1. Проверь ldconfig -p | grep libgomp."
+    fi
 fi
 
 # --- 1) Python 3.10+ ---

@@ -18,10 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system deps
+      - name: Install minimal deps (git + curl + python3-venv; setup.sh auto-installs the rest)
         run: |
           sudo apt-get update
-          sudo apt-get install -y git curl bzip2 tar libgomp1 python3-venv
+          sudo apt-get install -y git curl python3-venv
 
       - name: Write .env from secrets
         env:
