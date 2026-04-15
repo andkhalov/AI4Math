@@ -66,9 +66,37 @@ command -v bzip2 >/dev/null 2>&1 || MISSING+=("bzip2")
 
 # libgomp check — only Linux. macOS doesn't need it (Goose uses different
 # runtime), Windows bundles it with goose.exe.
+#
+# The check has to survive PATH issues: regular users on Debian/Ubuntu don't
+# have /usr/sbin in PATH, so `ldconfig` is "command not found", grep returns
+# empty, and we'd falsely report libgomp1 as missing. We check the library
+# file directly on disk first, then fall back to ldconfig with explicit paths.
+have_libgomp() {
+    local dir
+    for dir in \
+        /usr/lib/x86_64-linux-gnu \
+        /usr/lib/aarch64-linux-gnu \
+        /usr/lib64 \
+        /usr/lib \
+        /lib/x86_64-linux-gnu \
+        /lib/aarch64-linux-gnu \
+        /lib64 \
+        /lib; do
+        [ -e "$dir/libgomp.so.1" ] && return 0
+    done
+    # Fallback: ldconfig with explicit paths (users without /usr/sbin in PATH)
+    local ldc
+    for ldc in /usr/sbin/ldconfig /sbin/ldconfig ldconfig; do
+        if [ -x "$ldc" ] || command -v "$ldc" >/dev/null 2>&1; then
+            "$ldc" -p 2>/dev/null | grep -q "libgomp.so.1" && return 0
+        fi
+    done
+    return 1
+}
+
 NEED_LIBGOMP=0
 if [ "$(uname -s)" = "Linux" ]; then
-    if ! ldconfig -p 2>/dev/null | grep -q "libgomp.so.1"; then
+    if ! have_libgomp; then
         NEED_LIBGOMP=1
         MISSING+=("libgomp1")
     fi
@@ -142,8 +170,8 @@ fi
 
 # Re-verify libgomp after potential auto-install
 if [ "$NEED_LIBGOMP" = "1" ] && [ "$(uname -s)" = "Linux" ]; then
-    if ! ldconfig -p 2>/dev/null | grep -q "libgomp.so.1"; then
-        die "libgomp.so.1 всё ещё не найдена после установки libgomp1. Проверь ldconfig -p | grep libgomp."
+    if ! have_libgomp; then
+        die "libgomp.so.1 всё ещё не найдена после установки libgomp1. Проверь find /usr/lib -name 'libgomp.so.1'."
     fi
 fi
 
