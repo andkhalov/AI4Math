@@ -148,7 +148,8 @@ def build_goose_ext_args(extensions: list[dict], use_lean: bool) -> list[str]:
 
 # ---------- banner ----------
 
-def banner(model_nick: str, context_limit: int, lean_status: str, goose_mode: str = "auto") -> None:
+def banner(model_nick: str, context_limit: int, lean_status: str, goose_mode: str = "auto",
+           tokens_used: int = 0) -> None:
     if os.environ.get("AI4MATH_QUIET") == "1":
         return
     model_labels = {
@@ -168,6 +169,7 @@ def banner(model_nick: str, context_limit: int, lean_status: str, goose_mode: st
     Контекст:  {ctx_k}k токенов, auto-compact при {threshold}
     Mode:      {goose_mode}
     Lean 4:    {lean_status}
+    Бюджет:    {tokens_used:,} / {DAILY_TOKEN_LIMIT:,} токенов сегодня
   ─────────────────────────────────────────────────────────────
     ШАД «AI4Math Intensive» — А. П. Халов, О. М. Атаева
     МФТИ | Яндекс | ФИЦ ИУ РАН
@@ -227,6 +229,10 @@ def doctor() -> None:
                 print(f"lean-checker ({lean_url}): HTTP {resp.status}")
     except Exception:
         print(f"lean-checker ({lean_url}): DOWN (lean_check вернёт graceful failure)")
+    # --- token budget ---
+    _, used = _check_token_budget()
+    remaining = max(0, DAILY_TOKEN_LIMIT - used)
+    print(f"budget: {used:,} / {DAILY_TOKEN_LIMIT:,} (осталось {remaining:,})")
     # Exit non-zero if MCP failed — otherwise CI / users miss critical breakage.
     # Lean checker DOWN is intentionally not fatal (graceful OFFLINE fallback).
     sys.exit(0 if mcp_ok else 2)
@@ -280,6 +286,53 @@ MODEL_DEFAULTS = {
 
 
 VALID_GOOSE_MODES = {"auto", "smart_approve", "approve", "chat"}
+
+# ---------- daily token budget ----------
+
+DAILY_TOKEN_LIMIT = 1_000_000  # hard-coded; reset at midnight local time
+
+# Goose writes per-request JSONL to ~/.local/state/goose/logs/llm_request.*.jsonl
+# Each file has streaming chunk lines (usage: null) and one final line with
+# usage: {input_tokens, output_tokens, total_tokens}. We sum total_tokens
+# from files modified today.
+_GOOSE_LOG_DIR = Path(os.environ.get(
+    "GOOSE_LOG_DIR",
+    Path.home() / ".local" / "state" / "goose" / "logs",
+))
+
+
+def _today_token_usage() -> int:
+    """Sum total_tokens from today's Goose LLM request logs."""
+    import json as _json
+    from datetime import date
+    today = date.today().isoformat()
+    total = 0
+    if not _GOOSE_LOG_DIR.exists():
+        return 0
+    for f in _GOOSE_LOG_DIR.glob("llm_request.*.jsonl"):
+        try:
+            # Fast date filter: skip files not modified today
+            from datetime import datetime
+            mdate = datetime.fromtimestamp(f.stat().st_mtime).date().isoformat()
+            if mdate != today:
+                continue
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    try:
+                        u = _json.loads(line).get("usage")
+                    except Exception:
+                        continue
+                    if u and isinstance(u, dict):
+                        total += u.get("total_tokens") or 0
+        except Exception:
+            continue
+    return total
+
+
+def _check_token_budget() -> tuple[bool, int]:
+    """Return (allowed, used). If used >= DAILY_TOKEN_LIMIT, allowed=False."""
+    used = _today_token_usage()
+    return used < DAILY_TOKEN_LIMIT, used
 
 
 def probe_mcp(env_vars: dict | None = None, timeout: int = 8) -> tuple[list[str] | None, str]:
@@ -473,7 +526,21 @@ def main(argv: list[str]) -> int:
             )
             return 3
 
-    banner(model_nick, int(goose_env["GOOSE_CONTEXT_LIMIT"]), lean_status, goose_mode)
+    # --- daily token budget ---
+    allowed, used = _check_token_budget()
+    if not allowed:
+        remaining_h = 24 - __import__("datetime").datetime.now().hour
+        print(
+            f"{RED}[ai4math]{RESET} Суточный лимит токенов исчерпан.\n"
+            f"  Использовано сегодня: {used:,} из {DAILY_TOKEN_LIMIT:,}\n"
+            f"  Лимит сбросится через ~{remaining_h} ч (в полночь по локальному времени).\n"
+            f"  Чтобы продолжить — подожди до следующих суток.",
+            file=sys.stderr,
+        )
+        return 4
+
+    banner(model_nick, int(goose_env["GOOSE_CONTEXT_LIMIT"]), lean_status, goose_mode,
+           tokens_used=used)
 
     if not GOOSE_BIN.exists():
         die(f"goose binary не найден по пути {GOOSE_BIN}. Запусти setup заново.")
