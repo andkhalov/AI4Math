@@ -301,17 +301,30 @@ _GOOSE_LOG_DIR = Path(os.environ.get(
 ))
 
 
+_BUDGET_FILE = Path.home() / ".ai4math_budget.json"
+
+
 def _today_token_usage() -> int:
-    """Sum total_tokens from today's Goose LLM request logs."""
+    """Read today's token count from the shared budget file (written by token_proxy).
+    Falls back to scanning Goose LLM logs if the budget file is stale/missing."""
     import json as _json
     from datetime import date
     today = date.today().isoformat()
+
+    # Primary: budget file written by token_proxy (real-time accurate)
+    try:
+        d = _json.loads(_BUDGET_FILE.read_text())
+        if d.get("date") == today:
+            return d.get("tokens", 0)
+    except Exception:
+        pass
+
+    # Fallback: scan Goose logs (for sessions that ran before proxy was added)
     total = 0
     if not _GOOSE_LOG_DIR.exists():
         return 0
     for f in _GOOSE_LOG_DIR.glob("llm_request.*.jsonl"):
         try:
-            # Fast date filter: skip files not modified today
             from datetime import datetime
             mdate = datetime.fromtimestamp(f.stat().st_mtime).date().isoformat()
             if mdate != today:
@@ -541,6 +554,30 @@ def main(argv: list[str]) -> int:
         )
         return 4
 
+    # --- start token-counting proxy ---
+    # The proxy sits between Goose and Yandex, counts usage.total_tokens
+    # from each response (including SSE streaming), and returns 429 when
+    # the daily budget is exhausted — killing the session mid-flight.
+    proxy_py = REPO / "src" / "token_proxy.py"
+    venv_py = REPO / ".venv" / ("Scripts" if IS_WINDOWS else "bin") / ("python.exe" if IS_WINDOWS else "python")
+    py_for_proxy = str(venv_py) if venv_py.exists() else sys.executable
+    proxy_proc = subprocess.Popen(
+        [py_for_proxy, str(proxy_py),
+         "--upstream", "https://llm.api.cloud.yandex.net",
+         "--limit", str(DAILY_TOKEN_LIMIT)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        proxy_port_line = proxy_proc.stdout.readline().strip()
+        proxy_port = int(proxy_port_line)
+    except (ValueError, TypeError):
+        proxy_proc.terminate()
+        die(f"token proxy не стартовал (stdout: {proxy_port_line!r})")
+    atexit.register(lambda: proxy_proc.terminate())
+
+    # Point Goose at the local proxy instead of Yandex directly
+    goose_env["OPENAI_HOST"] = f"http://127.0.0.1:{proxy_port}"
+
     banner(model_nick, int(goose_env["GOOSE_CONTEXT_LIMIT"]), lean_status, goose_mode,
            tokens_used=used)
 
@@ -558,13 +595,10 @@ def main(argv: list[str]) -> int:
     else:
         die(f"Неизвестный режим: {mode}")
 
-    # Replace process on POSIX; fall back to subprocess on Windows where execvp is emulated
     os.environ.update(goose_env)
-    if IS_WINDOWS:
-        proc = subprocess.run(cmd, env=goose_env)
-        return proc.returncode
-    os.execvp(cmd[0], cmd)
-    return 0  # unreachable
+    proc = subprocess.run(cmd, env=goose_env)
+    proxy_proc.terminate()
+    return proc.returncode
 
 
 def _probe_lean(url: str) -> str:
