@@ -214,6 +214,38 @@ git clone https://github.com/andkhalov/AI4Math.git && cd AI4Math && ./setup.sh
 
 `.env` создастся через wizard заново. Ключ Yandex AI Studio можно скопировать из старого `.env` на исходной машине.
 
+### Удаление (uninstall)
+
+AI4Math не трогает системные пакеты и не ставит ничего глобально кроме
+одного symlink'а. Полная очистка:
+
+```bash
+# 1. Удалить symlink
+rm -f ~/.local/bin/ai4math
+
+# 2. Удалить репозиторий (включает .venv, .tools/goose, .env)
+rm -rf ~/AI4Math    # или где ты клонировал
+
+# 3. Удалить конфиги и логи Goose (опционально — если не используешь Goose для другого)
+rm -rf ~/.config/goose
+rm -rf ~/.local/state/goose
+rm -rf ~/.local/share/goose
+```
+
+**Windows:**
+
+```powershell
+# Удалить репозиторий
+Remove-Item -Recurse -Force C:\path\to\AI4Math
+
+# Удалить Goose-конфиги (опционально)
+Remove-Item -Recurse -Force "$env:APPDATA\goose"
+```
+
+После этого на системе не остаётся ничего от AI4Math. Системные пакеты
+(`python3`, `git`, `curl`, `libgomp1`), если были доустановлены через
+`setup.sh`, остаются — они стандартные и безвредные.
+
 ---
 
 ## Зачем это
