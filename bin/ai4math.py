@@ -208,7 +208,7 @@ def doctor() -> None:
         print(f"python venv: НЕ НАЙДЕН ({venv_py})")
 
     # --- MCP subprocess smoke test via shared probe_mcp() ---
-    lean_url_env = {"LEAN_CHECKER_URL": env.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag")}
+    lean_url_env = {"LEAN_CHECKER_URL": env.get("LEAN_CHECKER_URL", "https://scilibai.ru/grag")}
     tools, err = probe_mcp(env_vars=lean_url_env, timeout=8)
     mcp_ok = tools is not None and not err
     if mcp_ok:
@@ -218,7 +218,7 @@ def doctor() -> None:
         if tools is not None:
             print(f"  got tools: {tools}")
 
-    lean_url = env.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag")
+    lean_url = env.get("LEAN_CHECKER_URL", "https://scilibai.ru/grag")
     try:
         import urllib.request
         req = urllib.request.Request(f"{lean_url}/health", headers={"User-Agent": "ai4math-doctor"})
@@ -503,7 +503,7 @@ def main(argv: list[str]) -> int:
     goose_env.setdefault("GOOSE_MAX_TOKENS", "16000")
     goose_env.setdefault("GOOSE_TEMPERATURE", "0.2")
     goose_env["GOOSE_MODE"] = goose_mode
-    goose_env.setdefault("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag")
+    goose_env.setdefault("LEAN_CHECKER_URL", "https://scilibai.ru/grag")
     if not use_lean:
         goose_env["AI4MATH_LEAN_DISABLED"] = "1"
 

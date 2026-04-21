@@ -42,7 +42,7 @@ Usage:
   6. symlink в \$HOME/.local/bin/ai4math для глобальной команды
 
 По умолчанию Lean верификация идёт через публичный SciLib-GRC21
-endpoint (https://scilib.tailb97193.ts.net/grag) — работает сразу,
+endpoint (https://scilibai.ru/grag) — работает сразу,
 Docker не нужен.
 EOF
             exit 0

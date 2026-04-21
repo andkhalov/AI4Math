@@ -7,7 +7,7 @@
 # 1.5-2.5 часа, требует ~8 ГБ RAM, ~10 ГБ свободного места.
 #
 # После успешной установки измени LEAN_CHECKER_URL в .env с
-# https://scilib.tailb97193.ts.net/grag  →  http://localhost:8888
+# https://scilibai.ru/grag  →  http://localhost:8888
 # AI4Math MCP автоматически определит старую схему lean-checker и
 # будет работать с ним (отдельный tool path).
 set -euo pipefail

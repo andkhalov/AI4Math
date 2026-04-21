@@ -41,7 +41,7 @@ The tool routes automatically: URL containing `/grag` → new schema, else old.
 
 ## Env (all optional, sensible defaults)
 
-  LEAN_CHECKER_URL  https://scilib.tailb97193.ts.net/grag   (default)
+  LEAN_CHECKER_URL  https://scilibai.ru/grag   (default)
                     http://localhost:8888                    (local Docker option)
   LEANSEARCH_URL    https://leansearch.net
   LOOGLE_URL        https://loogle.lean-lang.org
@@ -77,8 +77,8 @@ mcp = FastMCP("ai4math")
 
 # ---------- config ----------
 
-LEAN_CHECKER_URL = os.environ.get("LEAN_CHECKER_URL", "https://scilib.tailb97193.ts.net/grag").rstrip("/")
-SCILIB = os.environ.get("SCILIB_GRAG_URL", "https://scilib.tailb97193.ts.net/grag").rstrip("/")
+LEAN_CHECKER_URL = os.environ.get("LEAN_CHECKER_URL", "https://scilibai.ru/grag").rstrip("/")
+SCILIB = os.environ.get("SCILIB_GRAG_URL", "https://scilibai.ru/grag").rstrip("/")
 
 # Schema routing: URLs containing `/grag` use the SciLib schema; everything
 # else uses the legacy andkhalov/lean-checker schema. Override explicitly

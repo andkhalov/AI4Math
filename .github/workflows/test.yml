@@ -54,7 +54,7 @@ jobs:
           YANDEX_DEEPSEEK=deepseek-v32/latest
           YANDEX_GPTOOS=gpt-oss-120b/latest
           AI4MATH_MODEL=qwen
-          LEAN_CHECKER_URL=https://scilib.tailb97193.ts.net/grag
+          LEAN_CHECKER_URL=https://scilibai.ru/grag
           ENV
 
       - name: Run setup.sh
@@ -104,7 +104,7 @@ jobs:
           YANDEX_DEEPSEEK=deepseek-v32/latest
           YANDEX_GPTOOS=gpt-oss-120b/latest
           AI4MATH_MODEL=qwen
-          LEAN_CHECKER_URL=https://scilib.tailb97193.ts.net/grag
+          LEAN_CHECKER_URL=https://scilibai.ru/grag
           ENV
 
       - name: Run setup.sh
@@ -155,7 +155,7 @@ jobs:
           YANDEX_DEEPSEEK=deepseek-v32/latest
           YANDEX_GPTOOS=gpt-oss-120b/latest
           AI4MATH_MODEL=qwen
-          LEAN_CHECKER_URL=https://scilib.tailb97193.ts.net/grag
+          LEAN_CHECKER_URL=https://scilibai.ru/grag
           "@ | Out-File -Encoding ASCII .env
 
       - name: Show environment
