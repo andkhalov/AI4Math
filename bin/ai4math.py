@@ -484,7 +484,9 @@ def main(argv: list[str]) -> int:
     goose_env["OPENAI_API_KEY"] = api_key
     goose_env["GOOSE_MODEL"] = f"gpt://{folder}/{slug}"
     goose_env.setdefault("GOOSE_CONTEXT_LIMIT", str(model_ctx))
-    goose_env.setdefault("GOOSE_AUTO_COMPACT_THRESHOLD", "0.8")
+    # Auto-compact at 100k tokens regardless of model context window
+    compact_threshold = min(0.8, 100_000 / model_ctx)
+    goose_env.setdefault("GOOSE_AUTO_COMPACT_THRESHOLD", f"{compact_threshold:.2f}")
     goose_env.setdefault("GOOSE_MAX_TOKENS", "16000")
     goose_env.setdefault("GOOSE_TEMPERATURE", "0.2")
     goose_env["GOOSE_MODE"] = goose_mode

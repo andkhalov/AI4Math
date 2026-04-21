@@ -157,16 +157,7 @@ def _parse_skill_frontmatter(path: Path) -> dict:
 
 @mcp.tool()
 def list_skills() -> str:
-    """List available topic-specific skill files with their descriptions.
-
-    Skills live in `AI4MATH_SKILLS_DIR` (default: `<repo>/skills/`). Each
-    `.md` file is a self-contained guide for one topic. Use `load_skill(name)`
-    to pull the content when you start a task in that area (Python, LaTeX,
-    Markdown, Lean, literature review, debugging, …).
-
-    Output includes description, trigger keywords, and which other skills
-    combine well — so you can pick the right skill without reading each file.
-    """
+    """List available skill files with descriptions and trigger keywords."""
     if not SKILLS_DIR.exists():
         return f"ERROR: skills dir не найден: {SKILLS_DIR}"
     items = []
@@ -194,17 +185,8 @@ def list_skills() -> str:
 
 @mcp.tool()
 def load_skill(name: str) -> str:
-    """Read a topic-specific skill file and return its full content.
-
-    Argument `name` is the skill filename without extension, e.g. `python`,
-    `latex`, `markdown`, `lean`, `literature`, `debug-loop`. Call this BEFORE
-    writing code / documents in the corresponding domain so that your output
-    follows the current best practices encoded in the skill file.
-
-    Skills are short (1-3 KB each) and cheap to load. Prefer loading a
-    skill over relying on general knowledge — the skill files are the
-    project's canonical source of truth for formatting/style/workflow.
-    """
+    """Load a skill by name (e.g. python, latex, lean, literature, debug-loop).
+    Call before writing code/docs in that domain."""
     if not SKILLS_DIR.exists():
         return f"ERROR: skills dir не найден: {SKILLS_DIR}"
     safe = Path(name).name.replace(".md", "")  # guard against path traversal
@@ -288,32 +270,8 @@ def _is_remote_unavailable(exc: Exception) -> bool:
 
 @mcp.tool()
 def lean_check(code: str, timeout: int = 15) -> str:
-    """Type-check and compile Lean 4 code against Mathlib.
-
-    Pass a Lean 4 source snippet as `code`. Mathlib is available; do not
-    submit `sorry`-only proofs, bare imports, or natural language — the
-    checker's sanity filter will reject them. Typical pattern:
-
-        lean_check("example : 1 + 1 = 2 := by norm_num")
-
-    Backend is auto-detected from LEAN_CHECKER_URL:
-      * URL contains `/grag` → SciLib /check schema (default remote endpoint)
-      * otherwise            → legacy andkhalov/lean-checker schema (local Docker)
-
-    Returns one of:
-      * `OK: ...` — code compiles (normal success path)
-      * `ERROR [<class>]: ...` — Lean rejected it (PARSE_ERROR, TACTIC_FAILURE,
-        GOAL_NOT_CLOSED, TIMEOUT, SANITY_CHECK_FAILED for SciLib; diagnostics
-        with line/col coordinates for legacy)
-      * `OFFLINE: ...` — verification endpoint temporarily unreachable
-        (connection refused, TLS handshake failure, read timeout). The agent
-        should acknowledge this to the user and continue the task without
-        formal verification, not treat it as a Lean error.
-
-    Uses short timeouts (~15 s) so one slow HTTP call never blocks a
-    session. Retries once on transient failure. If both attempts fail,
-    returns OFFLINE and the agent decides what to do next.
-    """
+    """Verify Lean 4 code against Mathlib. Returns OK/ERROR [class]/OFFLINE.
+    No sorry-only proofs. Example: lean_check("example : 1+1=2 := by norm_num")"""
     if LEAN_DISABLED:
         return "ERROR: lean_check is disabled via AI4MATH_LEAN_DISABLED."
 
@@ -360,18 +318,7 @@ def lean_check(code: str, timeout: int = 15) -> str:
 
 @mcp.tool()
 def lean_health() -> str:
-    """Quick probe of the Lean checker endpoint.
-
-    Uses a short 5-second timeout — this is a connectivity check, not a
-    warmup. Returns one of:
-      * `OK: {...}` — service up
-      * `OFFLINE: ...` — service unreachable (connect / TLS / timeout)
-      * `ERROR: ...` — unexpected failure
-
-    If `OFFLINE`, the agent should try calling `lean_check` anyway with
-    actual code (sometimes the verification path works even when /health
-    doesn't) and only fall back to skipping verification if that also fails.
-    """
+    """Quick 5s probe of the Lean checker. Returns OK/OFFLINE/ERROR."""
     if LEAN_DISABLED:
         return "Lean checker: disabled via AI4MATH_LEAN_DISABLED"
     last_err = None
@@ -402,15 +349,7 @@ def lean_health() -> str:
 
 @mcp.tool()
 def lean_search_engines() -> str:
-    """List available Lean/Mathlib search engines and their current health status.
-
-    Use this BEFORE doing any Lean search to let the user pick which engine
-    when the user has not already named one. Each engine has different strengths:
-      - loogle     : type/pattern search ("`?a + ?b = ?b + ?a`")
-      - leansearch : semantic with informal English ("commutativity of addition")
-      - moogle     : neural similarity (best-effort; sometimes down)
-      - scilib     : GraphRAG premise retrieval (Lean 4 goal with `sorry` → hints)
-    """
+    """Health-check all 4 Mathlib search engines (loogle/leansearch/moogle/scilib)."""
     lines = ["Доступные Mathlib search движки:\n"]
     engines = [
         ("loogle", f"{LOOGLE}/json?q=ping"),
@@ -435,12 +374,7 @@ def lean_search_engines() -> str:
 
 @mcp.tool()
 def lean_search_loogle(query: str) -> str:
-    """Search Mathlib via Loogle — type/pattern search.
-
-    Good for: "I need a lemma whose type matches `? + ? = ? + ?`".
-    Query syntax: standard Loogle, e.g. `Nat.add_comm`, `?a + ?b = ?b + ?a`,
-    `|- _ < _`, or free text like `commutativity addition`.
-    """
+    """Search Mathlib by type pattern via Loogle. E.g. "Nat.add_comm" or "?a + ?b = ?b + ?a"."""
     try:
         r = requests.get(f"{LOOGLE}/json", params={"q": query}, timeout=20)
         r.raise_for_status()
@@ -462,11 +396,7 @@ def lean_search_loogle(query: str) -> str:
 
 @mcp.tool()
 def lean_search_leansearch(query: str, num_results: int = 5) -> str:
-    """Search Mathlib via LeanSearch — semantic with informal English descriptions.
-
-    Good for: natural-language queries like "commutativity of multiplication on
-    the integers" or "Cauchy criterion for convergent series".
-    """
+    """Semantic Mathlib search via LeanSearch. Natural English queries."""
     try:
         r = requests.post(
             f"{LEANSEARCH}/search",
@@ -513,13 +443,7 @@ def lean_search_moogle(query: str) -> str:
 
 @mcp.tool()
 def lean_search_scilib(lean_code: str, num_results: int = 10) -> str:
-    """SciLib GraphRAG premise retrieval for Lean 4.
-
-    Input: a Lean 4 theorem statement, optionally with `sorry` placeholder.
-    Output: categorized hints (apply / rw / simp) derived via GraphDB ontology
-    expansion + Qdrant vector search. Zero LLM calls. Best used when you
-    already have a Lean goal and want concrete lemmas to try.
-    """
+    """SciLib GraphRAG premise retrieval. Input: Lean 4 goal (with sorry). Returns apply/rw/simp hints."""
     body = {
         "lean_code": lean_code,
         "num_results": min(num_results, 50),
@@ -630,11 +554,7 @@ def _brave_search(query: str, num: int, api_key: str) -> list[dict]:
 
 @mcp.tool()
 def web_search(query: str, num_results: int = 5) -> str:
-    """Search the open web. Returns title/url/snippet for each result.
-
-    Uses Brave Search API if `BRAVE_API_KEY` env var is set, otherwise falls
-    back to DuckDuckGo HTML scraping (keyless, best-effort).
-    """
+    """Web search (Brave or DuckDuckGo). Returns title/url/snippet."""
     if WEB_DISABLED:
         return "ERROR: web_search is disabled via AI4MATH_WEB_DISABLED."
     key = os.environ.get("BRAVE_API_KEY")
@@ -653,11 +573,7 @@ def web_search(query: str, num_results: int = 5) -> str:
 
 @mcp.tool()
 def web_fetch(url: str, max_chars: int = WEB_DEFAULT_MAX_CHARS) -> str:
-    """Fetch a URL and return its text content.
-
-    HTML is stripped of tags. Content is truncated to `max_chars` chars
-    (default 3000). Call multiple times with different URLs for separate fetches.
-    """
+    """Fetch URL, strip HTML, return text. Not for PDFs — use pdf_download."""
     if WEB_DISABLED:
         return "ERROR: web_fetch is disabled via AI4MATH_WEB_DISABLED."
     try:
@@ -706,19 +622,7 @@ def _pdf_parse_pages(spec: str, total: int) -> list[int]:
 
 @mcp.tool()
 def pdf_download(url: str, dest_path: str = "literature/") -> str:
-    """Download a PDF file from a URL to a local path.
-
-    Streams the response and writes bytes directly — safe for large files
-    (no decoding, no HTML stripping). If `dest_path` ends with `/` or is an
-    existing directory, the filename is derived from the URL or the
-    Content-Disposition header. Otherwise `dest_path` is treated as the
-    exact target file path (parent dirs are created if missing).
-
-    Returns a human-readable summary with the resolved path and size.
-
-    Typical usage for literature review:
-        pdf_download("https://arxiv.org/pdf/2505.22954.pdf", "literature/")
-    """
+    """Download PDF from URL. dest_path ending with / → auto filename from URL."""
     if WEB_DISABLED:
         return "ERROR: pdf_download is disabled via AI4MATH_WEB_DISABLED."
     try:
@@ -818,11 +722,7 @@ def pdf_info(path: str) -> str:
 
 @mcp.tool()
 def pdf_read(path: str, pages: str = "1-5", max_chars: int = PDF_DEFAULT_MAX_CHARS) -> str:
-    """Extract text from specified pages of a local PDF.
-
-    `pages` is a 1-indexed spec, e.g. "1-3", "1,3,5", "1-5,10". Default first 5.
-    Text is truncated to `max_chars` characters (default 8000).
-    """
+    """Extract text from PDF pages. pages: "1-3", "1,3,5". Default first 5."""
     p = _pdf_resolve(path)
     if not p.exists():
         return f"ERROR: файл не найден: {p}{_pdf_suggest_near(p)}"
@@ -849,8 +749,7 @@ def pdf_read(path: str, pages: str = "1-5", max_chars: int = PDF_DEFAULT_MAX_CHA
 
 @mcp.tool()
 def pdf_search(path: str, query: str, context: int = 120) -> str:
-    """Case-insensitive substring search over a PDF, returning matches with
-    page number and surrounding context (±`context` chars)."""
+    """Substring search in PDF. Returns page number + surrounding context."""
     p = _pdf_resolve(path)
     if not p.exists():
         return f"ERROR: файл не найден: {p}{_pdf_suggest_near(p)}"
