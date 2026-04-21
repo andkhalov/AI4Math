@@ -425,7 +425,7 @@ def main(argv: list[str]) -> int:
     model_nick = os.environ.get("AI4MATH_MODEL", "qwen")
     use_lean = True
     mode = "session"
-    goose_mode = os.environ.get("GOOSE_MODE", "auto")
+    goose_mode = os.environ.get("GOOSE_MODE", "smart_approve")
     positional: list[str] = []
     i = 0
     while i < len(args):
