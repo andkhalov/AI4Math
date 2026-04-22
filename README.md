@@ -87,9 +87,9 @@ bin\ai4math.bat doctor               проверка
 
 | Флаг | Значение |
 |---|---|
-| `-m qwen` / `-m deepseek` / `-m gptoss` | Выбор модели на эту сессию |
-| `--mode auto` | (default) все tool-calls автоматом |
-| `--mode smart_approve` | Read-only автоматом, write/exec с подтверждением |
+| `-m deepseek` / `-m qwen` / `-m gptoss` | Выбор модели на эту сессию (default: `deepseek`) |
+| `--mode smart_approve` | (default для интерактивной сессии) read-only автоматом, write/exec с подтверждением |
+| `--mode auto` | (default для `run` mode) все tool-calls автоматом, без подтверждений |
 | `--mode approve` | Каждый tool-call требует подтверждения |
 | `--mode chat` | Только диалог, без tool-calls |
 | `--no-lean` | Стартовать без Lean-тулов (полезно, если SciLib endpoint временно недоступен) |
@@ -119,15 +119,16 @@ bin\ai4math.bat doctor               проверка
 
 | Переменная | Значение |
 |---|---|
-| `AI4MATH_MODEL` | Модель по умолчанию: `qwen` / `deepseek` / `gptoss` |
+| `AI4MATH_MODEL` | Модель по умолчанию: `deepseek` (default) / `qwen` / `gptoss` |
 | `AI4MATH_QUIET=1` | Не печатать баннер при старте |
 | `AI4MATH_NOCOLOR=1` | Выключить ANSI-цвета |
 | `AI4MATH_LEAN_DISABLED=1` | Полностью отключить Lean-тулы (как `--no-lean`) |
 | `AI4MATH_SKILLS_DIR` | Дополнительная директория со skills |
+| `AI4MATH_DAILY_TOKEN_LIMIT` | Суточный лимит токенов (default: 2,000,000) |
 | `GOOSE_MODE` | Approval-режим по умолчанию |
-| `GOOSE_PLANNER_MODEL` / `GOOSE_PLANNER_PROVIDER` | Отдельная модель для `/plan` |
+| `GOOSE_PLANNER_MODEL` / `GOOSE_PLANNER_PROVIDER` | Отдельная модель для `/plan` (default: Qwen3-235B, если `YANDEX_QWEN` задан в `.env`) |
 | `GOOSE_CONTEXT_LIMIT` | Лимит контекста модели |
-| `GOOSE_AUTO_COMPACT_THRESHOLD` | Порог авто-компакции истории (default 0.8) |
+| `GOOSE_AUTO_COMPACT_THRESHOLD` | Порог auto-compact (вычисляется автоматом — компактит при 100k токенов независимо от модели) |
 | `LEAN_CHECKER_URL` | URL верификационного endpoint'а (default — публичный SciLib-GRC21) |
 
 **Windows native** — то же самое через `bin\ai4math.bat` (флаги идентичны).
@@ -172,20 +173,36 @@ combines_with: debug-loop, markdown, latex
 
 **Проект-специфичные skills**: положи файл `skills/<name>.md` с frontmatter в корень AI4Math или свой путь через `AI4MATH_SKILLS_DIR`, и агент увидит его через `list_skills`/`load_skill`. Полезно для кастомных convention'ов, internal APIs, и т.п.
 
-### Планирование и approval modes (нативно в Goose)
+### Планирование (planner/executor split)
 
-**Планирование сложных задач** — `/plan <task>` прямо в интерактивной сессии. Goose создаёт план через отдельную planner-модель (`GOOSE_PLANNER_MODEL`/`GOOSE_PLANNER_PROVIDER`, по умолчанию та же модель), показывает пользователю, и после согласия исполняет. Рекомендуемый workflow: `/mode approve` → подготовка контекста → `/plan <task>` → review → accept → auto-исполнение.
+**`/plan <task>` в интерактивной сессии** использует **Qwen3-235B** как planner-модель, а исполнение идёт через **DeepSeek-V3.2** (default executor). Это экономит токены: тяжёлая модель отвечает за reasoning на 1-2 вызова, дешёвая — за рутину из 30-50 tool calls. Настройка автоматическая — если `YANDEX_QWEN` есть в `.env`, `GOOSE_PLANNER_MODEL` выставляется сам.
 
-**Режимы исполнения** — 4 варианта через `GOOSE_MODE` / флаг `--mode` / slash-команду `/mode <name>`:
+Ручное переопределение: `export GOOSE_PLANNER_MODEL=...` до запуска.
 
-| Режим | Поведение |
-|---|---|
-| `auto` (default) | Все tool calls выполняются автоматически |
-| `smart_approve` | Read-only (ls, cat, pdf_read) автоматом; write/exec спрашивают |
-| `approve` | Каждый tool call требует подтверждения |
-| `chat` | Никаких tool calls — только диалог и план действий |
+Рекомендуемый workflow: `/mode approve` → подготовка контекста → `/plan <task>` → review → accept → auto-исполнение.
+
+### Approval modes
+
+4 варианта через `GOOSE_MODE` / флаг `--mode` / slash-команду `/mode <name>`:
+
+| Режим | Поведение | Когда default |
+|---|---|---|
+| `smart_approve` | Read-only (ls, cat, pdf_read, lean_search_*, list_skills) автоматом; write/exec (shell, text_editor) спрашивают | интерактивная сессия |
+| `auto` | Все tool calls автоматически без подтверждений | `ai4math run "..."` (non-interactive) |
+| `approve` | Каждый tool call требует подтверждения | — |
+| `chat` | Никаких tool calls — только диалог | — |
 
 Переключение на лету: `/mode approve` в интерактивной сессии. При старте: `ai4math --mode approve`.
+
+### Суточный лимит токенов
+
+Захардкожен на **2,000,000 токенов/сутки** на инстанс (переопределяется через `AI4MATH_DAILY_TOKEN_LIMIT`). Считает собственный прокси между Goose и Yandex API — парсит `usage.total_tokens` из каждого ответа, пишет в `~/.ai4math_budget.json`. Сбрасывается в полночь локального времени.
+
+- **Перед стартом** сессии: если бюджет исчерпан, `ai4math`/`ai4math run` отказывается стартовать (exit 4), печатает остаток часов.
+- **В середине сессии**: прокси возвращает HTTP 429 с сообщением о превышении — Goose останавливает сессию.
+- **Видимость**: в баннере при старте; агент сам сообщает остаток каждые 5-7 tool calls (`(Бюджет: 934k / 2M — 46%)`).
+
+Чтобы увидеть текущий расход без запуска агента: `ai4math doctor` → строка `budget: X / 2,000,000 (осталось Y)`.
 
 ### Обновление существующей установки
 
@@ -365,11 +382,21 @@ SciLib-GRC21 — собственный сервис, разработан в р
 
 ### PDF
 
+- **pdf_download(url, dest_path)** — бинарная загрузка PDF с проверкой `%PDF-` magic, детерминированное имя файла из URL
 - **pdf_info(path)** — метаданные, количество страниц, размер
 - **pdf_read(path, pages)** — извлечь текст из указанных страниц (`"1-5,10"`)
-- **pdf_search(path, query)** — подстрочный поиск с контекстом
+- **pdf_search(path, query)** — Unicode-нормализованный поиск (`"Gödel"` найдёт и `G¨odel` из dvips-PDF)
 
 Полезно для быстрого ознакомления с научными статьями внутри сессии.
+
+### Artifact cache + мета-инструменты
+
+Тяжёлые тулы (`web_search`, `web_fetch`, `pdf_read`, `pdf_search`, `lean_search_*`) при outputе больше 800 символов возвращают **preview + artifact_id** вместо полного текста. Полный контент хранится в памяти MCP-процесса, умирает вместе с сессией. Это экономит токены — 3 KB PDF-выдача не болтается в истории всех следующих LLM-вызовов.
+
+- **load_artifact(artifact_id)** — получить полный контент когда preview недостаточно. Агент сам решает нужен ли полный текст.
+- **token_budget()** — остаток суточного лимита на сейчас. Агент вызывает автоматически каждые 5-7 tool calls.
+
+**Всего 17 MCP-тулов** (14 доменных + 3 мета: `list_skills`, `load_skill`, `load_artifact`, `token_budget`).
 
 ---
 
@@ -379,15 +406,16 @@ SciLib-GRC21 — собственный сервис, разработан в р
 
 | Модель | Контекст | Роль |
 |---|---|---|
-| **Qwen3-235B-A22B-FP8** | 256k токенов | **По умолчанию** — быстрая (~20 tok/s), 96.7% success в бенчмарке, самая стабильная на редактировании кода |
-| **DeepSeek-V3.2** | 128k токенов | Thinking-модель, альтернативная опция, может быть точнее на сложных математических задачах |
-| gpt-oss-120b | 128k | Только для one-shot запросов без tool chains — несовместима с Goose tool namespacing (см. [EXPERIMENT_REPORT.md](report/EXPERIMENT_REPORT.md)) |
+| **DeepSeek-V3.2** | 128k токенов | **По умолчанию (executor)** — дешевле за токен, 90% success в бенчмарке, thinking-режим включается на сложных задачах |
+| **Qwen3-235B-A22B-FP8** | 256k токенов | **Planner (автоматически для `/plan`)** — быстрая (~20 tok/s), 96.7% success, стабильнее на редактировании кода. Запуск в соло: `-m qwen` |
+| gpt-oss-120b | 128k | Только для one-shot без tool chains — несовместима с Goose tool namespacing (см. [EXPERIMENT_REPORT.md](report/EXPERIMENT_REPORT.md)) |
 
 Переключение моделей:
 
 ```bash
-ai4math -m qwen       # default
-ai4math -m deepseek
+ai4math               # default — DeepSeek-V3.2 executor + Qwen planner
+ai4math -m qwen       # всё на Qwen (дороже, но качественнее на редактировании)
+ai4math -m deepseek   # явно DeepSeek (без planner split)
 ai4math -m gptoss
 ```
 
