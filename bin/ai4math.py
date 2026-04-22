@@ -159,14 +159,15 @@ def banner(model_nick: str, context_limit: int, lean_status: str, goose_mode: st
     }
     label = model_labels.get(model_nick, model_nick)
     ctx_k = context_limit // 1000
-    threshold = os.environ.get("GOOSE_AUTO_COMPACT_THRESHOLD", "0.8")
+    threshold = float(os.environ.get("GOOSE_AUTO_COMPACT_THRESHOLD", "0.8"))
+    compact_at_k = int(context_limit * threshold) // 1000
     print(f"""
   ─── AI4Math ──────────────────────────────────────────────────
     научный code-агент
     Инференс  →  Контекст  →  Верификация
   ─────────────────────────────────────────────────────────────
     Модель:    {label}
-    Контекст:  {ctx_k}k токенов, auto-compact при {threshold}
+    Контекст:  {ctx_k}k токенов, auto-compact при {compact_at_k}k
     Mode:      {goose_mode}
     Lean 4:    {lean_status}
     Бюджет:    {tokens_used:,} / {DAILY_TOKEN_LIMIT:,} токенов сегодня
@@ -425,7 +426,10 @@ def main(argv: list[str]) -> int:
     model_nick = os.environ.get("AI4MATH_MODEL", "deepseek")
     use_lean = True
     mode = "session"
-    goose_mode = os.environ.get("GOOSE_MODE", "smart_approve")
+    # Default mode depends on interactivity: smart_approve for interactive
+    # sessions (user can approve), auto for `run` mode (non-interactive —
+    # no one to approve, any exec tool would hang or fail with "not connected").
+    goose_mode = os.environ.get("GOOSE_MODE", "")
     positional: list[str] = []
     i = 0
     while i < len(args):
@@ -470,6 +474,14 @@ def main(argv: list[str]) -> int:
 
     if model_nick not in MODEL_DEFAULTS:
         die(f"Неизвестная модель: {model_nick} (qwen|deepseek|gptoss)")
+
+    # Finalize goose_mode default based on interactivity:
+    # - interactive session → smart_approve (user can approve tools)
+    # - run mode (one-shot)  → auto (no user to approve, smart_approve deadlocks)
+    if not goose_mode:
+        goose_mode = "auto" if mode == "run" else "smart_approve"
+    if goose_mode not in VALID_GOOSE_MODES:
+        die(f"--mode: неизвестный режим '{goose_mode}'")
 
     if not ENV_FILE.exists():
         die(f"нет файла {ENV_FILE} — запусти setup.sh или setup.bat сначала")

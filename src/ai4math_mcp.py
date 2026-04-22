@@ -163,6 +163,34 @@ def _maybe_trim(tool: str, content: str) -> str:
 
 
 @mcp.tool()
+def token_budget() -> str:
+    """Check current daily token usage (today's spend / limit / remaining).
+
+    Reads the live counter written by the token proxy. Call this when the
+    user asks about cost, before heavy operations, or when the session
+    has been running for a while."""
+    try:
+        path = Path.home() / ".ai4math_budget.json"
+        import json as _json
+        from datetime import date
+        today = date.today().isoformat()
+        try:
+            d = _json.loads(path.read_text())
+            used = d.get("tokens", 0) if d.get("date") == today else 0
+        except Exception:
+            used = 0
+        limit = int(os.environ.get("AI4MATH_DAILY_TOKEN_LIMIT", "2000000"))
+        remaining = max(0, limit - used)
+        pct = (used * 100) // limit if limit else 0
+        return (
+            f"Токен-бюджет на сегодня: {used:,} / {limit:,} ({pct}%). "
+            f"Осталось {remaining:,}. Сброс — в полночь локального времени."
+        )
+    except Exception as e:
+        return f"ERROR [token_budget]: {type(e).__name__}: {e}"
+
+
+@mcp.tool()
 def load_artifact(artifact_id: str) -> str:
     """Get the full content of a previous heavy tool call by artifact_id.
 
