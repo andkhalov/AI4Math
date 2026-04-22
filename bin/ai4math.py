@@ -289,7 +289,7 @@ VALID_GOOSE_MODES = {"auto", "smart_approve", "approve", "chat"}
 
 # ---------- daily token budget ----------
 
-DAILY_TOKEN_LIMIT = 1_000_000  # hard-coded; reset at midnight local time
+DAILY_TOKEN_LIMIT = 2_000_000  # hard-coded; reset at midnight local time
 
 # Goose writes per-request JSONL to ~/.local/state/goose/logs/llm_request.*.jsonl
 # Each file has streaming chunk lines (usage: null) and one final line with
@@ -422,7 +422,7 @@ def probe_mcp(env_vars: dict | None = None, timeout: int = 8) -> tuple[list[str]
 def main(argv: list[str]) -> int:
     # Parse args — simple hand-rolled parser to keep stdlib-only
     args = argv[1:]
-    model_nick = os.environ.get("AI4MATH_MODEL", "qwen")
+    model_nick = os.environ.get("AI4MATH_MODEL", "deepseek")
     use_lean = True
     mode = "session"
     goose_mode = os.environ.get("GOOSE_MODE", "smart_approve")
@@ -496,6 +496,15 @@ def main(argv: list[str]) -> int:
     goose_env["OPENAI_BASE_PATH"] = "/v1/chat/completions"
     goose_env["OPENAI_API_KEY"] = api_key
     goose_env["GOOSE_MODEL"] = f"gpt://{folder}/{slug}"
+
+    # Planner/executor split: /plan uses Qwen (rich reasoning, few calls),
+    # execution stays on the selected default (DeepSeek — cheaper per token).
+    # Only override if user hasn't set them explicitly in the shell.
+    planner_slug = os.environ.get("YANDEX_QWEN")
+    if planner_slug:
+        goose_env.setdefault("GOOSE_PLANNER_PROVIDER", "openai")
+        goose_env.setdefault("GOOSE_PLANNER_MODEL", f"gpt://{folder}/{planner_slug}")
+
     goose_env.setdefault("GOOSE_CONTEXT_LIMIT", str(model_ctx))
     # Auto-compact at 100k tokens regardless of model context window
     compact_threshold = min(0.8, 100_000 / model_ctx)

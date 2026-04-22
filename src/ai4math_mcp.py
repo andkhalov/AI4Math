@@ -112,6 +112,76 @@ def _truncate(s: str | None, n: int = CHARS_PER_HIT) -> str:
 
 
 # ========================================================================
+# Artifact cache — in-process memory for trimming heavy tool outputs
+# ========================================================================
+#
+# Heavy tools (web_search, pdf_read, lean_search_*, web_fetch, pdf_search)
+# often return 1-5 KB. Without trimming, those bytes stay in Goose's
+# conversation history and get re-sent with every subsequent LLM call
+# for the rest of the session — a major token sink.
+#
+# Pattern: return a short preview + artifact id. Full content is kept in
+# a dict keyed by id in this process's memory. If the agent needs the
+# full text later, it calls load_artifact(id). Dies with the MCP process
+# on session end — no cleanup, no disk, no stale state.
+#
+# Threshold: outputs under ARTIFACT_THRESHOLD chars are returned whole
+# (no benefit from trimming a 200-char result). Over the threshold, we
+# return preview + marker.
+
+_ARTIFACTS: dict[str, dict] = {}
+_ARTIFACT_COUNTER = 0
+ARTIFACT_THRESHOLD = 800    # chars; under this, return full content unchanged
+ARTIFACT_PREVIEW = 500      # chars shown in the trimmed response
+
+
+def _store_artifact(tool: str, content: str) -> str:
+    """Stash full content in process memory, return a short id."""
+    global _ARTIFACT_COUNTER
+    _ARTIFACT_COUNTER += 1
+    aid = f"{tool}_{_ARTIFACT_COUNTER:04d}"
+    _ARTIFACTS[aid] = {"tool": tool, "content": content, "size": len(content)}
+    return aid
+
+
+def _maybe_trim(tool: str, content: str) -> str:
+    """Return content unchanged if short, else preview + artifact id.
+
+    The preview keeps the first ARTIFACT_PREVIEW chars — enough for the
+    agent to judge whether the full result is worth loading. The artifact
+    id is embedded in a machine-readable line the agent can parse.
+    """
+    if len(content) <= ARTIFACT_THRESHOLD:
+        return content
+    aid = _store_artifact(tool, content)
+    preview = content[:ARTIFACT_PREVIEW].rstrip()
+    return (
+        f"{preview}\n\n"
+        f"[... усечено, полный размер {len(content):,} симв. | "
+        f"artifact_id: {aid} | для полного текста: load_artifact(\"{aid}\")]"
+    )
+
+
+@mcp.tool()
+def load_artifact(artifact_id: str) -> str:
+    """Get the full content of a previous heavy tool call by artifact_id.
+
+    Artifact ids look like "web_search_0003" and appear at the end of
+    trimmed tool outputs. Content lives in MCP-process memory and is
+    lost when the session ends. Call only when you actually need the
+    full text — the preview is usually enough.
+    """
+    a = _ARTIFACTS.get(artifact_id)
+    if a is None:
+        available = sorted(_ARTIFACTS.keys())
+        return (
+            f"ERROR: artifact '{artifact_id}' не найден. "
+            f"Доступно {len(available)}: {', '.join(available[-10:])}"
+        )
+    return a["content"]
+
+
+# ========================================================================
 # Modular skills — on-demand loading of topic-specific guidance
 # ========================================================================
 
@@ -391,7 +461,8 @@ def lean_search_loogle(query: str) -> str:
         )
         if h.get("doc"):
             lines.append(f"    doc: {_truncate(h['doc'], 200)}")
-    return "\n".join(lines) if hits else f"{header}\n(нет результатов)"
+    out = "\n".join(lines) if hits else f"{header}\n(нет результатов)"
+    return _maybe_trim("loogle", out)
 
 
 @mcp.tool()
@@ -422,7 +493,7 @@ def lean_search_leansearch(query: str, num_results: int = 5) -> str:
         )
         if res.get("informal_description"):
             lines.append(f"    informal: {_truncate(res['informal_description'], 300)}")
-    return "\n".join(lines)
+    return _maybe_trim("leansearch", "\n".join(lines))
 
 
 @mcp.tool()
@@ -438,7 +509,10 @@ def lean_search_moogle(query: str) -> str:
         data = r.json()
     except Exception as e:
         return _fmt_err("moogle", e)
-    return f"Moogle — raw response:\n{_truncate(json.dumps(data, ensure_ascii=False), 1500)}"
+    return _maybe_trim(
+        "moogle",
+        f"Moogle — raw response:\n{_truncate(json.dumps(data, ensure_ascii=False), 1500)}",
+    )
 
 
 @mcp.tool()
@@ -486,7 +560,8 @@ def lean_search_scilib(lean_code: str, num_results: int = 10) -> str:
             pieces.append(
                 f"  • [{h.get('role')}] {h.get('name')}  ::  {_truncate(h.get('signature'), 200)}"
             )
-    return "\n".join(pieces) if pieces else f"SciLib: пусто. features={data.get('features')}"
+    out = "\n".join(pieces) if pieces else f"SciLib: пусто. features={data.get('features')}"
+    return _maybe_trim("scilib", out)
 
 
 # ========================================================================
@@ -568,7 +643,7 @@ def web_search(query: str, num_results: int = 5) -> str:
     lines = [f"Результаты по «{query}» (провайдер: {'brave' if key else 'duckduckgo'}):"]
     for i, r in enumerate(results, 1):
         lines.append(f"\n{i}. {r['title']}\n   {r['url']}\n   {r['snippet']}")
-    return "\n".join(lines)
+    return _maybe_trim("web_search", "\n".join(lines))
 
 
 @mcp.tool()
@@ -587,7 +662,7 @@ def web_fetch(url: str, max_chars: int = WEB_DEFAULT_MAX_CHARS) -> str:
         body = _strip_html(body)
     if len(body) > max_chars:
         body = body[:max_chars] + f"\n\n[... truncated, total {len(r.text)} chars ...]"
-    return f"{url}\nContent-Type: {ct}\n\n{body}"
+    return _maybe_trim("web_fetch", f"{url}\nContent-Type: {ct}\n\n{body}")
 
 
 # ========================================================================
@@ -744,7 +819,7 @@ def pdf_read(path: str, pages: str = "1-5", max_chars: int = PDF_DEFAULT_MAX_CHA
     out = "\n".join(parts).strip()
     if len(out) > max_chars:
         out = out[:max_chars] + f"\n\n[... truncated, {len(out) - max_chars} chars cut ...]"
-    return out
+    return _maybe_trim("pdf_read", out)
 
 
 @mcp.tool()
@@ -787,7 +862,7 @@ def pdf_search(path: str, query: str, context: int = 120) -> str:
             break
     if not hits:
         return f"«{query}» не найдено в {p}"
-    return f"{len(hits)} совпадений:\n" + "\n".join(hits)
+    return _maybe_trim("pdf_search", f"{len(hits)} совпадений:\n" + "\n".join(hits))
 
 
 if __name__ == "__main__":

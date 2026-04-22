@@ -24,7 +24,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 UPSTREAM = os.environ.get("AI4MATH_UPSTREAM", "https://llm.api.cloud.yandex.net")
-DAILY_LIMIT = int(os.environ.get("AI4MATH_DAILY_TOKEN_LIMIT", "1000000"))
+DAILY_LIMIT = int(os.environ.get("AI4MATH_DAILY_TOKEN_LIMIT", "2000000"))
 BUDGET_FILE = Path.home() / ".ai4math_budget.json"
 
 _lock = threading.Lock()
