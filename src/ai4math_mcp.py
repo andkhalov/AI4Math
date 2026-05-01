@@ -179,7 +179,7 @@ def token_budget() -> str:
             used = d.get("tokens", 0) if d.get("date") == today else 0
         except Exception:
             used = 0
-        limit = int(os.environ.get("AI4MATH_DAILY_TOKEN_LIMIT", "2000000"))
+        limit = int(os.environ.get("AI4MATH_DAILY_TOKEN_LIMIT", "3000000"))
         remaining = max(0, limit - used)
         pct = (used * 100) // limit if limit else 0
         return (

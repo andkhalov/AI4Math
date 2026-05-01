@@ -290,7 +290,7 @@ VALID_GOOSE_MODES = {"auto", "smart_approve", "approve", "chat"}
 
 # ---------- daily token budget ----------
 
-DAILY_TOKEN_LIMIT = 2_000_000  # hard-coded; reset at midnight local time
+DAILY_TOKEN_LIMIT = 3_000_000  # hard-coded; reset at midnight local time
 
 # Goose writes per-request JSONL to ~/.local/state/goose/logs/llm_request.*.jsonl
 # Each file has streaming chunk lines (usage: null) and one final line with
