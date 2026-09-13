@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""AI4Math wizard — интерактивная настройка .env при первом запуске.
+"""AI4Science wizard — настройка .env при первой установке.
 
-Спрашивает у пользователя API-ключ Yandex AI Studio и folder id, предлагает
-выбрать модель по умолчанию и пишет .env в корне репозитория.
+Спрашивает ключ Yandex AI Studio, folder id и модель по умолчанию,
+записывает .env в корень репозитория. Только стандартная библиотека.
 
-Без внешних зависимостей — использует только стандартную библиотеку.
-
-Запускается из setup.sh. Для повторной настройки: удалить .env и перезапустить
-setup.sh.
+Неинтерактивный режим (CI, скрипты): заданы переменные окружения
+YANDEX_CLOUD_API_KEY и YANDEX_CLOUD_FOLDER, а stdin не терминал или
+AI4SCIENCE_WIZARD_NONINTERACTIVE=1 → .env пишется без вопросов.
 """
 from __future__ import annotations
 
@@ -15,7 +14,6 @@ import os
 import sys
 from pathlib import Path
 
-# Force UTF-8 on Windows — default cp1252 can't encode Cyrillic.
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
@@ -25,20 +23,23 @@ if sys.platform == "win32":
 
 REPO = Path(__file__).resolve().parent.parent
 ENV_FILE = REPO / ".env"
-ENV_EXAMPLE = REPO / ".env.example"
 
-GREEN = "\033[0;32m"
-YELLOW = "\033[0;33m"
-BOLD = "\033[1m"
-RESET = "\033[0m"
+GREEN, YELLOW, BOLD, RESET = "\033[0;32m", "\033[0;33m", "\033[1m", "\033[0m"
+DEFAULT_MODEL = "qwen3.6-35b-a3b/latest"
+DEFAULT_PLANNER = "qwen3-235b-a22b-fp8/latest"
+DEFAULT_LEAN_URL = "https://scilibai.ru/grag"
+
+MODELS = [
+    ("qwen3.6-35b-a3b/latest", "Qwen 3.6 35B A3B — быстрая, модель курса. Рекомендуется."),
+    ("qwen3-235b-a22b-fp8/latest", "Qwen 3 235B — точнее, медленнее и дороже."),
+    ("deepseek-v4-flash/latest", "DeepSeek V4 Flash — альтернатива для сравнения."),
+]
 
 
 def banner() -> None:
     print(f"""
-  ─── AI4Math wizard ──────────────────────────────────────────
-    Настройка .env для работы с Yandex AI Studio
-    Курс ШАД «AI4Math Intensive»
-    А. П. Халов, О. М. Атаева — МФТИ | Яндекс | ФИЦ ИУ РАН
+  ─── AI4Science wizard ───────────────────────────────────────
+    Настройка .env: Yandex AI Studio, модель, Lean checker
   ─────────────────────────────────────────────────────────────
 """)
 
@@ -56,17 +57,14 @@ def ask(label: str, default: str | None = None, secret: bool = False) -> str:
         print("\nОтменено.")
         sys.exit(1)
     val = val.strip()
-    if not val and default is not None:
-        return default
-    return val
+    return default if (not val and default is not None) else val
 
 
 def ask_choice(label: str, options: list[tuple[str, str]], default: int = 0) -> str:
     print(f"\n  {BOLD}{label}{RESET}")
     for i, (key, desc) in enumerate(options, 1):
-        marker = " (default)" if i - 1 == default else ""
-        print(f"    [{i}] {key}{marker}")
-        print(f"        {desc}")
+        marker = " (по умолчанию)" if i - 1 == default else ""
+        print(f"    [{i}] {key}{marker}\n        {desc}")
     while True:
         raw = ask("Номер", default=str(default + 1))
         try:
@@ -78,90 +76,67 @@ def ask_choice(label: str, options: list[tuple[str, str]], default: int = 0) -> 
         print(f"  {YELLOW}Введи число от 1 до {len(options)}.{RESET}")
 
 
-def main() -> int:
-    banner()
-
-    if ENV_FILE.exists():
-        print(f"  {YELLOW}[warn]{RESET} {ENV_FILE} уже существует.")
-        ans = ask("Перезаписать? (y/N)", default="N")
-        if ans.lower() not in ("y", "yes", "д", "да"):
-            print("  Оставляю существующий .env без изменений.")
-            return 0
-
-    print("  Провайдер: Yandex AI Studio (единственный поддерживаемый сейчас).")
-    print("  Получить ключ и folder id: https://yandex.cloud/ru/docs/ai-studio/quickstart")
-    print()
-
-    api_key = ask("YANDEX_AI_API (API ключ)", secret=True)
-    if not api_key or len(api_key) < 20:
-        print(f"  {YELLOW}Ключ выглядит пустым или коротким. Продолжаю, но doctor это покажет.{RESET}")
-
-    folder = ask("YANDEX_CLOUD_FOLDER (folder id, вида b1gi39jvrih75di87rqs)")
-    if not folder or not folder.startswith("b1"):
-        print(f"  {YELLOW}Folder id обычно начинается с 'b1'. Продолжаю.{RESET}")
-
-    # Модель по умолчанию (исходя из benchmark Phase 3 — qwen > deepseek > gpt-oss)
-    model = ask_choice(
-        "Модель по умолчанию",
-        [
-            (
-                "qwen",
-                "Qwen3-235B-A22B-FP8 — быстрая (10-25 с), 96.7% success в Phase 3 benchmark, контекст 256k. Рекомендуется.",
-            ),
-            (
-                "deepseek",
-                "DeepSeek-V3.2 — thinking-модель, точнее на сложной математике, но в 2 раза медленнее. Контекст 128k.",
-            ),
-        ],
-        default=0,
-    )
-
-    # Слоги моделей — фиксированы для Yandex AI Studio
-    YANDEX_QWEN = "qwen3-235b-a22b-fp8/latest"
-    YANDEX_DEEPSEEK = "deepseek-v32/latest"
-    YANDEX_GPTOOS = "gpt-oss-120b/latest"  # хранится для совместимости, но не рекомендуется
-
-    # Опционально: BRAVE_API_KEY
-    print()
-    brave = ask("BRAVE_API_KEY (опционально, Enter чтобы пропустить — будет DuckDuckGo)", default="")
-
-    # Lean checker URL
-    print()
-    print("  Lean checker: по умолчанию используется публичный SciLib-GRC21 —")
-    print("  ничего поднимать локально не нужно. Для offline режима укажи")
-    print("  http://localhost:8888 и позже запусти ./setup.sh --with-lean-local.")
-    lean_url = ask("LEAN_CHECKER_URL", default="https://scilibai.ru/grag")
-
-    # Запись
+def write_env(api_key: str, folder: str, model: str, lean_url: str = DEFAULT_LEAN_URL, brave: str = "") -> None:
     lines = [
-        "# AI4Math .env — сгенерировано wizard.py",
-        "# Не коммить в git.",
+        "# AI4Science .env — сгенерировано cli/wizard.py. Не коммитить.",
         "",
         "# === Yandex AI Studio ===",
-        f"YANDEX_AI_API={api_key}",
+        f"YANDEX_CLOUD_API_KEY={api_key}",
         f"YANDEX_CLOUD_FOLDER={folder}",
-        "",
-        "# Идентификаторы моделей (не трогай, если Yandex их не поменял)",
-        f"YANDEX_QWEN={YANDEX_QWEN}",
-        f"YANDEX_DEEPSEEK={YANDEX_DEEPSEEK}",
-        f"YANDEX_GPTOOS={YANDEX_GPTOOS}",
-        "",
-        "# === Модель по умолчанию ===",
-        f"AI4MATH_MODEL={model}",
+        f"YANDEX_CLOUD_MODEL={model}",
+        f"YANDEX_PLANNER_MODEL={DEFAULT_PLANNER}",
         "",
         "# === Lean checker ===",
         f"LEAN_CHECKER_URL={lean_url}",
         "",
-        "# === Опционально: Brave Search API (иначе DuckDuckGo) ===",
-        f"BRAVE_API_KEY={brave}" if brave else "# BRAVE_API_KEY=",
+        "# === Необязательные настройки ===",
+        f"BRAVE_API_KEY={brave}" if brave else "# BRAVE_API_KEY=            # поиск через Brave вместо DuckDuckGo",
+        "# GOOSE_CONTEXT_LIMIT=128000",
         "",
     ]
+    ENV_FILE.write_text("\n".join(lines), encoding="utf-8")
 
-    ENV_FILE.write_text("\n".join(lines))
+
+def main() -> int:
+    env_key = os.environ.get("YANDEX_CLOUD_API_KEY") or os.environ.get("YANDEX_AI_API", "")
+    env_folder = os.environ.get("YANDEX_CLOUD_FOLDER", "")
+    non_interactive = bool(env_key and env_folder) and (
+        os.environ.get("AI4SCIENCE_WIZARD_NONINTERACTIVE") == "1" or not sys.stdin.isatty()
+    )
+    if non_interactive:
+        write_env(env_key, env_folder,
+                  os.environ.get("YANDEX_CLOUD_MODEL", DEFAULT_MODEL),
+                  os.environ.get("LEAN_CHECKER_URL", DEFAULT_LEAN_URL),
+                  os.environ.get("BRAVE_API_KEY", ""))
+        print(f"[ok] .env записан из переменных окружения: {ENV_FILE}")
+        return 0
+
+    banner()
+    if ENV_FILE.exists():
+        print(f"  {YELLOW}[warn]{RESET} {ENV_FILE} уже существует.")
+        if ask("Перезаписать? (y/N)", default="N").lower() not in ("y", "yes", "д", "да"):
+            print("  Оставляю существующий .env без изменений.")
+            return 0
+
+    print("  Ключ и folder id Yandex AI Studio выдаются на курсе.")
+    print("  Самостоятельно: https://yandex.cloud/ru/docs/ai-studio/quickstart")
+    print()
+    api_key = ask("YANDEX_CLOUD_API_KEY", secret=True)
+    if len(api_key) < 20:
+        print(f"  {YELLOW}Ключ выглядит коротким. Продолжаю; doctor это покажет.{RESET}")
+    folder = ask("YANDEX_CLOUD_FOLDER (вида b1g...)")
+    if folder and not folder.startswith("b1"):
+        print(f"  {YELLOW}Folder id обычно начинается с 'b1'. Продолжаю.{RESET}")
+    model = ask_choice("Модель по умолчанию", MODELS, default=0)
+    print()
+    print("  Lean checker: по умолчанию используется удалённый сервис курса.")
+    print("  Для локального варианта: http://localhost:8888 и ./setup.sh --with-lean-local.")
+    lean_url = ask("LEAN_CHECKER_URL", default=DEFAULT_LEAN_URL)
+    brave = ask("BRAVE_API_KEY (Enter — пропустить, будет DuckDuckGo)", default="")
+    write_env(api_key, folder, model, lean_url, brave)
     print()
     print(f"  {GREEN}[ok]{RESET} .env записан: {ENV_FILE}")
-    print(f"  Модель по умолчанию: {BOLD}{model}{RESET}")
-    print()
+    print(f"  Модель: {BOLD}{model}{RESET}")
     return 0
 
 

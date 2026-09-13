@@ -9,7 +9,7 @@ Covers:
 - OFFLINE fallback on lean_health
 - OFFLINE fallback on lean_search_scilib
 - Schema routing based on URL (.../grag → scilib)
-- AI4MATH_LEAN_DISABLED
+- AI4SCIENCE_LEAN_DISABLED
 """
 from __future__ import annotations
 

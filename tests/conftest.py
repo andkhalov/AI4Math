@@ -1,4 +1,4 @@
-"""Shared pytest fixtures and PDF helpers for AI4Math test suite.
+"""Shared pytest fixtures and PDF helpers for AI4Science test suite.
 
 The suite is split into three layers:
 
@@ -6,7 +6,7 @@ The suite is split into three layers:
   pure unit tests. No network, no external services. Fast, deterministic.
 
 - `test_network.py` — integration tests that hit real DuckDuckGo / Loogle /
-  LeanSearch / arxiv. Skipped unless `AI4MATH_TEST_NETWORK=1` is set.
+  LeanSearch / arxiv. Skipped unless `AI4SCIENCE_TEST_NETWORK=1` is set.
 
 - The Lean verification endpoint is never required to be up. Tests that care
   about its behaviour mock `requests.post`/`requests.get` to simulate both
@@ -73,7 +73,7 @@ def sample_pdf(tmp_path: Path) -> Path:
 def skills_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Isolated skills directory populated with two fixture skills.
 
-    Monkeypatches ai4math_mcp.SKILLS_DIR so list_skills/load_skill see
+    Monkeypatches ai4science_mcp.SKILLS_DIR so list_skills/load_skill see
     exactly these files, not the repo-level skills/.
     """
     d = tmp_path / "skills"
@@ -110,23 +110,23 @@ def skills_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # No frontmatter file — must still be listed by stem
     (d / "bare.md").write_text("# bare\nno frontmatter", encoding="utf-8")
 
-    import ai4math_mcp
-    monkeypatch.setattr(ai4math_mcp, "SKILLS_DIR", d)
+    import ai4science_mcp
+    monkeypatch.setattr(ai4science_mcp, "SKILLS_DIR", d)
     return d
 
 
 @pytest.fixture
 def m():
-    """The ai4math_mcp module, imported once and reused across tests."""
-    import ai4math_mcp
-    return ai4math_mcp
+    """The ai4science_mcp module, imported once and reused across tests."""
+    import ai4science_mcp
+    return ai4science_mcp
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip network-marked tests unless AI4MATH_TEST_NETWORK=1."""
-    if os.environ.get("AI4MATH_TEST_NETWORK") == "1":
+    """Skip network-marked tests unless AI4SCIENCE_TEST_NETWORK=1."""
+    if os.environ.get("AI4SCIENCE_TEST_NETWORK") == "1":
         return
-    skip_network = pytest.mark.skip(reason="set AI4MATH_TEST_NETWORK=1 to run")
+    skip_network = pytest.mark.skip(reason="set AI4SCIENCE_TEST_NETWORK=1 to run")
     for item in items:
         if "network" in item.keywords:
             item.add_marker(skip_network)

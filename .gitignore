@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
 
 # Goose tooling
 .tools/
@@ -12,7 +13,7 @@ __pycache__/
 .bench_venv/
 /tmp_bench/
 
-# Lean-checker Docker workspace (submodule builds volumes outside tree)
+# Lean-checker Docker workspace
 vendor/lean-checker/.lake/
 vendor/lean-checker/lake-packages/
 vendor/lean-checker/build/

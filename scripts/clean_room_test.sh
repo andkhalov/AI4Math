@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AI4Math clean-room test. Запускает репо в свежем Docker-контейнере
+# AI4Science clean-room test. Запускает репо в свежем Docker-контейнере
 # `python:3.12-slim` — симулирует установку с нуля у студента.
 #
 # Требует: docker, локально склонированный репо, заполненный .env в корне
@@ -12,8 +12,8 @@
 #   [1] Чистый контейнер без git/curl/bzip2/libgomp1 — setup.sh сам сообщает
 #       чего не хватает (pre-flight check).
 #   [2] После apt install системных зависимостей: git clone из локального
-#       git-объекта → setup.sh отрабатывает за ~30 секунд → ai4math doctor
-#       показывает зелёный статус → ai4math run с Task A (fibonacci) → файл
+#       git-объекта → setup.sh отрабатывает за ~30 секунд → ai4science doctor
+#       показывает зелёный статус → ai4science run с Task A (fibonacci) → файл
 #       создан, вывод корректный.
 #
 # Выход 0 если всё прошло, ненулевой с деталями если что-то сломано.
@@ -23,7 +23,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [ ! -f "$REPO/.env" ]; then
-    echo "Нужен $REPO/.env с YANDEX_AI_API / YANDEX_CLOUD_FOLDER для теста."
+    echo "Нужен $REPO/.env с YANDEX_CLOUD_API_KEY / YANDEX_CLOUD_FOLDER для теста."
     echo "Запусти ./cli/wizard.py или скопируй .env.example и заполни."
     exit 1
 fi
@@ -49,7 +49,7 @@ git --version
 curl --version | head -1
 
 echo
-echo "=== [2] Clone AI4Math from mounted local repo ==="
+echo "=== [2] Clone AI4Science from mounted local repo ==="
 git config --global --add safe.directory /git_source
 git config --global --add safe.directory /git_source/.git
 git clone /git_source /app
@@ -59,13 +59,10 @@ git log --oneline -1
 echo
 echo "=== [3] Pre-populate .env (skips interactive wizard) ==="
 cat > /app/.env <<ENV
-YANDEX_AI_API=$YANDEX_AI_API
+YANDEX_CLOUD_API_KEY=$YANDEX_CLOUD_API_KEY
 YANDEX_CLOUD_FOLDER=$YANDEX_CLOUD_FOLDER
-YANDEX_QWEN=qwen3-235b-a22b-fp8/latest
-YANDEX_DEEPSEEK=deepseek-v32/latest
-YANDEX_GPTOOS=gpt-oss-120b/latest
-AI4MATH_MODEL=qwen
-LEAN_CHECKER_URL=http://localhost:8888
+YANDEX_CLOUD_MODEL=qwen3.6-35b-a3b/latest
+LEAN_CHECKER_URL=https://scilibai.ru/grag
 ENV
 
 echo
@@ -73,13 +70,13 @@ echo "=== [4] Run setup.sh ==="
 ./setup.sh 2>&1 | tail -20
 
 echo
-echo "=== [5] ai4math doctor ==="
-./bin/ai4math doctor
+echo "=== [5] ai4science doctor ==="
+./bin/ai4science doctor
 
 echo
-echo "=== [6] ai4math run — Task A (fibonacci) ==="
+echo "=== [6] ai4science run — Task A (fibonacci) ==="
 mkdir -p /tmp/taskA && cd /tmp/taskA
-AI4MATH_QUIET=1 /app/bin/ai4math run \
+AI4SCIENCE_QUIET=1 /app/bin/ai4science run \
     "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works." 2>&1 | tail -25
 
 echo "---verify artifact---"
@@ -117,6 +114,6 @@ docker run --rm \
     --network host \
     -v "$REPO:/git_source:ro" \
     -v "$TEST_SCRIPT:/test.sh:ro" \
-    -e YANDEX_AI_API="$YANDEX_AI_API" \
+    -e YANDEX_CLOUD_API_KEY="$YANDEX_CLOUD_API_KEY" \
     -e YANDEX_CLOUD_FOLDER="$YANDEX_CLOUD_FOLDER" \
     python:3.12-slim bash /test.sh

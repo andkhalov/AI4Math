@@ -2,7 +2,7 @@
 
 Skipped by default. Run with:
 
-    AI4MATH_TEST_NETWORK=1 pytest tests/test_network.py -v
+    AI4SCIENCE_TEST_NETWORK=1 pytest tests/test_network.py -v
 
 These tests verify that the tools work against live DuckDuckGo, Loogle,
 LeanSearch, and arxiv. They are essential for catching regressions in

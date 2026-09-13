@@ -1,6 +1,6 @@
-# AI4Math — архитектура
+# AI4Science — архитектура
 
-Инженерный обзор того, как работает AI4Math изнутри — чтобы вносить правки или диагностировать проблемы без чтения всего кода.
+Инженерный обзор того, как работает AI4Science изнутри — чтобы вносить правки или диагностировать проблемы без чтения всего кода.
 
 ---
 
@@ -9,14 +9,14 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ 1. Пользователь                                                 │
-│    ai4math [session|run] [-m qwen|deepseek|gptoss] [args]       │
+│    ai4science [session|run] [-m qwen|deepseek|gptoss] [args]       │
 └──────────────────────────────┬──────────────────────────────────┘
                                │ bash / cmd
 ┌──────────────────────────────▼──────────────────────────────────┐
-│ 2. bin/ai4math (shim) → bin/ai4math.py (cross-platform core)    │
+│ 2. bin/ai4science (shim) → bin/ai4science.py (cross-platform core)    │
 │    - загружает .env                                             │
 │    - выставляет per-model GOOSE_CONTEXT_LIMIT и прочие тюнинги  │
-│    - парсит recipes/ai4math.yaml → две части:                   │
+│    - парсит recipes/ai4science.yaml → две части:                   │
 │      (a) instructions → tempfile → GOOSE_SYSTEM_PROMPT_FILE_PATH│
 │      (b) extensions → --with-builtin / --with-extension flags   │
 │    - exec goose session|run --no-profile                        │
@@ -25,15 +25,15 @@
 ┌──────────────────────────────▼──────────────────────────────────┐
 │ 3. .tools/goose                 (агентский loop)                │
 │    - OpenAI-compatible client → Yandex AI Studio                │
-│    - tool_schemas для developer builtin + ai4math stdio         │
+│    - tool_schemas для developer builtin + ai4science stdio         │
 │    - agent loop: message → tool_calls → tool_exec → message ... │
 │    - auto-compaction при GOOSE_AUTO_COMPACT_THRESHOLD (0.8)     │
 └────────────┬──────────────────┬─────────────────────────────────┘
              │ HTTPS            │ stdio JSON-RPC (MCP)
              │                  │
 ┌────────────▼──────────┐  ┌────▼──────────────────────────────────┐
-│ 4a. Yandex AI Studio  │  │ 4b. src/ai4math_mcp.py                │
-│     /v1/chat/compl    │  │     FastMCP("ai4math") — 13 tools     │
+│ 4a. Yandex AI Studio  │  │ 4b. src/ai4science_mcp.py                │
+│     /v1/chat/compl    │  │     FastMCP("ai4science") — 13 tools     │
 │     qwen / deepseek / │  │       lean_check, lean_health         │
 │     gpt-oss           │  │       lean_search_scilib  ⭐ primary  │
 └───────────────────────┘  │       lean_search_loogle/leansearch/  │
@@ -62,13 +62,13 @@
 
 ## Компоненты
 
-### 1. bin/ai4math (shim) + bin/ai4math.py (core)
+### 1. bin/ai4science (shim) + bin/ai4science.py (core)
 
-Кросс-платформенный Python entrypoint. Shim-скрипт `bin/ai4math` для Linux/macOS и `bin/ai4math.bat` для Windows делегируют к `bin/ai4math.py`, который:
+Кросс-платформенный Python entrypoint. Shim-скрипт `bin/ai4science` для Linux/macOS и `bin/ai4science.bat` для Windows делегируют к `bin/ai4science.py`, который:
 
 - Читает `.env` (stdlib-only, без python-dotenv, чтобы работать до установки зависимостей)
 - Выставляет `GOOSE_PROVIDER=openai`, `OPENAI_HOST`, `OPENAI_BASE_PATH`, `OPENAI_API_KEY`, `GOOSE_MODEL=gpt://<folder>/<slug>`
-- Per-model контекст: qwen 256k, deepseek/gptoss 128k (см. [EXPERIMENT_REPORT.md](../report/EXPERIMENT_REPORT.md) — «Context window probe»)
+- Per-model контекст: qwen3-235b 256k, остальные модели 128k (см. [EXPERIMENT_REPORT.md](../report/EXPERIMENT_REPORT.md) — «Context window probe»)
 - `GOOSE_AUTO_COMPACT_THRESHOLD=0.8` — auto-summarization при 80% заполнении окна
 - Парсит recipe YAML:
   - `instructions` → tempfile → `GOOSE_SYSTEM_PROMPT_FILE_PATH` (env var, которую читает Goose)
@@ -77,29 +77,29 @@
 - Поддерживает `session`, `run`, `doctor`, `--help`, `--model`, `--no-lean`
 - На POSIX делает `os.execvp` для process replace, на Windows — `subprocess.run`
 
-### 2. recipes/ai4math.yaml — Goose recipe
+### 2. recipes/ai4science.yaml — Goose recipe
 
 Формат Goose recipe:
 
 ```yaml
 version: "1.0.0"
-title: "AI4Math"
+title: "AI4Science"
 description: ...
 extensions:
   - type: builtin
     name: developer          # bash + text_editor + todo
   - type: stdio
-    name: ai4math            # наш MCP
-    cmd: bin/ai4math-mcp
+    name: ai4science            # наш MCP
+    cmd: bin/ai4science-mcp
     timeout: 180
 instructions: |
   # Идентичность
-  Ты — AI4Math, CLI-агент для курса ...
+  Ты — AI4Science, CLI-агент для курса ...
 ```
 
 `instructions` содержит:
 
-- Идентичность (AI4Math, не Claude, не goose)
+- Идентичность (AI4Science, не Claude, не goose)
 - Философия курса (триада инференс → контекст → верификация)
 - Стиль коммуникации (русский, коротко, tool-first, без эмодзи)
 - Каталог инструментов с описаниями
@@ -109,18 +109,18 @@ instructions: |
 - Список «что не делать»
 - Правила безопасности
 
-### 3. src/ai4math_mcp.py — единый MCP сервер
+### 3. src/ai4science_mcp.py — единый MCP сервер
 
-`FastMCP("ai4math")` с 15 инструментами, stdio транспорт. Запускается Goose'ом через `bin/ai4math-mcp`.
+`FastMCP("ai4science")` с 15 инструментами, stdio транспорт. Запускается Goose'ом через `bin/ai4science-mcp`.
 
 **Skills — modular on-demand loading** (2):
 
-- `list_skills()` — enumerate topic-specific guides available in `$AI4MATH_SKILLS_DIR` (default `<repo>/skills/`)
+- `list_skills()` — enumerate topic-specific guides available in `$AI4SCIENCE_SKILLS_DIR` (default `<repo>/skills/`)
 - `load_skill(name)` — read and return full content of `skills/<name>.md`
 
 Skills are short (~100-200 lines) markdown files covering one domain each: `python.md`, `latex.md`, `markdown.md`, `lean.md`, `literature.md`, `debug-loop.md`. Recipe instructions match task types to skill names and require the agent to call `load_skill(...)` before starting work in that domain. This keeps the core system prompt ~250 lines instead of 600+ and enables hot-swapping best-practices without editing the recipe.
 
-Project-specific skills can be added as additional `.md` files in the skills directory — no code changes needed. Path is overridable via `AI4MATH_SKILLS_DIR` env var.
+Project-specific skills can be added as additional `.md` files in the skills directory — no code changes needed. Path is overridable via `AI4SCIENCE_SKILLS_DIR` env var.
 
 **Lean верификация** (2):
 
@@ -151,10 +151,10 @@ Project-specific skills can be added as additional `.md` files in the skills dir
 
 **Env-toggles**:
 
-- `AI4MATH_LEAN_DISABLED=1` — `lean_check` / `lean_health` возвращают "disabled"
-- `AI4MATH_WEB_DISABLED=1` — `web_*` и `pdf_download` возвращают "disabled"
-- `AI4MATH_LEAN_SCHEMA=scilib|lean-checker` — явный override автодетекта
-- `AI4MATH_SKILLS_DIR=/path/to/skills/` — переопределить путь skill-директории
+- `AI4SCIENCE_LEAN_DISABLED=1` — `lean_check` / `lean_health` возвращают "disabled"
+- `AI4SCIENCE_WEB_DISABLED=1` — `web_*` и `pdf_download` возвращают "disabled"
+- `AI4SCIENCE_LEAN_SCHEMA=scilib|lean-checker` — явный override автодетекта
+- `AI4SCIENCE_SKILLS_DIR=/path/to/skills/` — переопределить путь skill-директории
 
 ### 4. Внешние зависимости
 
@@ -169,16 +169,16 @@ Project-specific skills can be added as additional `.md` files in the skills dir
 
 ## Жизненный цикл сессии
 
-### Запуск `ai4math`
+### Запуск `ai4science`
 
-1. Shim (bash / bat) вычисляет пути, вызывает `python bin/ai4math.py`.
+1. Shim (bash / bat) вычисляет пути, вызывает `python bin/ai4science.py`.
 2. Python загружает `.env`, выставляет GOOSE env vars по модели.
 3. Парсит recipe → tempfile с `instructions` + list of `--with-*` флагов.
-4. Печатает ASCII-баннер (если `AI4MATH_QUIET != 1`).
+4. Печатает ASCII-баннер (если `AI4SCIENCE_QUIET != 1`).
 5. `exec .tools/goose session --no-profile --with-builtin developer --with-extension "<cmd>"`.
 6. Goose:
    - читает `GOOSE_SYSTEM_PROMPT_FILE_PATH` → загружает instructions
-   - запускает stdio подпроцесс `bin/ai4math-mcp` (Python + FastMCP), ждёт `initialize` ответ
+   - запускает stdio подпроцесс `bin/ai4science-mcp` (Python + FastMCP), ждёт `initialize` ответ
    - регистрирует 13 инструментов MCP + 3 builtin `developer` инструмента в tool schema
    - открывает интерактивный REPL
 
@@ -214,7 +214,7 @@ gpt-oss strippит префикс `developer__` с tool names, вызывает 
 
 ### Смена модели mid-session
 
-Goose не поддерживает. `/exit` + `ai4math -m <other>` — единственный путь.
+Goose не поддерживает. `/exit` + `ai4science -m <other>` — единственный путь.
 
 ### SciLib sanity filter
 
@@ -239,7 +239,7 @@ Pinned versions (актуально на момент последнего бе�
 - **Lean (local fallback)**: 4.24.0 + Mathlib 4.24.0
 - **Yandex models**:
   - `qwen3-235b-a22b-fp8/latest`
-  - `deepseek-v32/latest`
+  - `deepseek-v4-flash/latest`
   - `gpt-oss-120b/latest`
 - **Python**: 3.10+ (минимум)
 - **MCP SDK**: `mcp>=0.9` (FastMCP API)
@@ -249,8 +249,8 @@ Pinned versions (актуально на момент последнего бе�
 ## Отладка
 
 ```bash
-ai4math doctor                          # проверка окружения
-RUST_LOG=debug ai4math run "..."        # verbose Goose лог
+ai4science doctor                          # проверка окружения
+RUST_LOG=debug ai4science run "..."        # verbose Goose лог
 curl https://scilibai.ru/grag/health   # remote Lean endpoint
 curl http://localhost:8888/health       # local Lean endpoint (если установлен)
 docker logs lean-checker-lean-server-1  # логи local Lean контейнера

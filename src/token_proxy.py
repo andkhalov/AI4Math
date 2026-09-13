@@ -4,10 +4,10 @@ Sits on localhost, forwards all requests to the real Yandex endpoint,
 parses usage from responses (including SSE streaming), and blocks new
 requests when the daily budget is exceeded.
 
-Usage (from bin/ai4math.py — auto-started, not user-facing):
+Usage (from bin/ai4science.py — auto-started, not user-facing):
     python src/token_proxy.py [--port PORT] [--upstream URL] [--limit N]
 
-The proxy writes daily totals to ~/.ai4math_budget.json and reads it
+The proxy writes daily totals to ~/.ai4science_budget.json and reads it
 back on startup so budget survives process restarts.
 """
 from __future__ import annotations
@@ -23,9 +23,22 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
-UPSTREAM = os.environ.get("AI4MATH_UPSTREAM", "https://llm.api.cloud.yandex.net")
-DAILY_LIMIT = int(os.environ.get("AI4MATH_DAILY_TOKEN_LIMIT", "3000000"))
-BUDGET_FILE = Path.home() / ".ai4math_budget.json"
+# Windows: консоль по умолчанию cp1252/cp866 — принудительно UTF-8 для кириллицы.
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+# Переменные версии 1.x (AI4MATH_*) принимаются как запасные для AI4SCIENCE_*.
+for _k, _v in list(os.environ.items()):
+    if _k.startswith("AI4MATH_"):
+        os.environ.setdefault("AI4SCIENCE_" + _k[len("AI4MATH_"):], _v)
+
+UPSTREAM = os.environ.get("AI4SCIENCE_UPSTREAM", "https://llm.api.cloud.yandex.net")
+DAILY_LIMIT = int(os.environ.get("AI4SCIENCE_DAILY_TOKEN_LIMIT", "3000000"))
+BUDGET_FILE = Path.home() / ".ai4science_budget.json"
 
 _lock = threading.Lock()
 _today: str = ""
@@ -85,7 +98,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             body = json.dumps({
                 "error": {
                     "message": (
-                        f"[AI4Math] Суточный лимит токенов исчерпан "
+                        f"[AI4Science] Суточный лимит токенов исчерпан "
                         f"({used:,} / {DAILY_LIMIT:,}). "
                         f"Лимит сбросится в полночь. Заверши сессию (/exit)."
                     ),

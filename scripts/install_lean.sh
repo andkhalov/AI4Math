@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Установка локального lean-checker — опциональная альтернатива remote
-# SciLib endpoint'у, используемому по умолчанию в AI4Math.
+# SciLib endpoint'у, используемому по умолчанию в AI4Science.
 #
 # Клонирует andkhalov/lean-checker (Lean 4.24 + Mathlib 4.24) в vendor/,
 # запускает docker compose up -d. Первая сборка Mathlib занимает
@@ -8,7 +8,7 @@
 #
 # После успешной установки измени LEAN_CHECKER_URL в .env с
 # https://scilibai.ru/grag  →  http://localhost:8888
-# AI4Math MCP автоматически определит старую схему lean-checker и
+# AI4Science MCP автоматически определит старую схему lean-checker и
 # будет работать с ним (отдельный tool path).
 set -euo pipefail
 
@@ -45,7 +45,7 @@ say "Жду первого прогрева /health (прогрев lake env м�
 for i in $(seq 1 60); do
     if curl -fsS --max-time 5 "http://localhost:8888/health" 2>/dev/null | grep -q '"lean_ok":true'; then
         say "/health OK — lean-checker готов."
-        say "Чтобы переключить AI4Math на локальный checker, поставь в .env:"
+        say "Чтобы переключить AI4Science на локальный checker, поставь в .env:"
         say "    LEAN_CHECKER_URL=http://localhost:8888"
         exit 0
     fi

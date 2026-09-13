@@ -1,6 +1,6 @@
-"""AI4Math unified MCP server — единый stdio-процесс со всеми инструментами.
+"""AI4Science unified MCP server — единый stdio-процесс со всеми инструментами.
 
-Tools (Goose namespace: `ai4math`):
+Tools (Goose namespace: `ai4science`):
 
   Lean verification
     lean_check(code)                 verify Lean 4 code via SciLib /check
@@ -48,8 +48,8 @@ The tool routes automatically: URL containing `/grag` → new schema, else old.
   MOOGLE_URL        https://www.moogle.ai
   BRAVE_API_KEY     optional, enables Brave Search API instead of DuckDuckGo
 
-  AI4MATH_LEAN_DISABLED=1  disable lean_check/lean_health
-  AI4MATH_WEB_DISABLED=1   disable web_search/web_fetch
+  AI4SCIENCE_LEAN_DISABLED=1  disable lean_check/lean_health
+  AI4SCIENCE_WEB_DISABLED=1   disable web_search/web_fetch
 """
 from __future__ import annotations
 
@@ -59,6 +59,11 @@ import re
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+# Переменные версии 1.x (AI4MATH_*) принимаются как запасные для AI4SCIENCE_*.
+for _k, _v in list(os.environ.items()):
+    if _k.startswith("AI4MATH_"):
+        os.environ.setdefault("AI4SCIENCE_" + _k[len("AI4MATH_"):], _v)
 
 # Force UTF-8 for stdio JSON-RPC on Windows — MCP protocol is UTF-8 native.
 if sys.platform == "win32":
@@ -73,7 +78,7 @@ import requests
 from mcp.server.fastmcp import FastMCP
 from pypdf import PdfReader
 
-mcp = FastMCP("ai4math")
+mcp = FastMCP("ai4science")
 
 # ---------- config ----------
 
@@ -82,8 +87,8 @@ SCILIB = os.environ.get("SCILIB_GRAG_URL", "https://scilibai.ru/grag").rstrip("/
 
 # Schema routing: URLs containing `/grag` use the SciLib schema; everything
 # else uses the legacy andkhalov/lean-checker schema. Override explicitly
-# with AI4MATH_LEAN_SCHEMA=scilib|lean-checker if needed.
-_forced_schema = os.environ.get("AI4MATH_LEAN_SCHEMA")
+# with AI4SCIENCE_LEAN_SCHEMA=scilib|lean-checker if needed.
+_forced_schema = os.environ.get("AI4SCIENCE_LEAN_SCHEMA")
 if _forced_schema in ("scilib", "lean-checker"):
     LEAN_SCHEMA = _forced_schema
 else:
@@ -92,10 +97,10 @@ LEANSEARCH = os.environ.get("LEANSEARCH_URL", "https://leansearch.net").rstrip("
 LOOGLE = os.environ.get("LOOGLE_URL", "https://loogle.lean-lang.org").rstrip("/")
 MOOGLE = os.environ.get("MOOGLE_URL", "https://www.moogle.ai").rstrip("/")
 
-LEAN_DISABLED = os.environ.get("AI4MATH_LEAN_DISABLED") == "1"
-WEB_DISABLED = os.environ.get("AI4MATH_WEB_DISABLED") == "1"
+LEAN_DISABLED = os.environ.get("AI4SCIENCE_LEAN_DISABLED") == "1"
+WEB_DISABLED = os.environ.get("AI4SCIENCE_WEB_DISABLED") == "1"
 
-UA = "Mozilla/5.0 (X11; Linux x86_64) AI4Math/1.0"
+UA = "Mozilla/5.0 (X11; Linux x86_64) AI4Science/2.0"
 MAX_RESULTS = 10
 CHARS_PER_HIT = 400
 PDF_DEFAULT_MAX_CHARS = 8000
@@ -170,7 +175,7 @@ def token_budget() -> str:
     user asks about cost, before heavy operations, or when the session
     has been running for a while."""
     try:
-        path = Path.home() / ".ai4math_budget.json"
+        path = Path.home() / ".ai4science_budget.json"
         import json as _json
         from datetime import date
         today = date.today().isoformat()
@@ -179,7 +184,7 @@ def token_budget() -> str:
             used = d.get("tokens", 0) if d.get("date") == today else 0
         except Exception:
             used = 0
-        limit = int(os.environ.get("AI4MATH_DAILY_TOKEN_LIMIT", "3000000"))
+        limit = int(os.environ.get("AI4SCIENCE_DAILY_TOKEN_LIMIT", "3000000"))
         remaining = max(0, limit - used)
         pct = (used * 100) // limit if limit else 0
         return (
@@ -213,9 +218,9 @@ def load_artifact(artifact_id: str) -> str:
 # Modular skills — on-demand loading of topic-specific guidance
 # ========================================================================
 
-# Skills directory: overridable via AI4MATH_SKILLS_DIR. By default points at
+# Skills directory: overridable via AI4SCIENCE_SKILLS_DIR. By default points at
 # the skills/ folder next to this Python file (../skills relative to src/).
-_SKILLS_DIR_ENV = os.environ.get("AI4MATH_SKILLS_DIR")
+_SKILLS_DIR_ENV = os.environ.get("AI4SCIENCE_SKILLS_DIR")
 if _SKILLS_DIR_ENV:
     SKILLS_DIR = Path(_SKILLS_DIR_ENV).expanduser().resolve()
 else:
@@ -371,7 +376,7 @@ def lean_check(code: str, timeout: int = 15) -> str:
     """Verify Lean 4 code against Mathlib. Returns OK/ERROR [class]/OFFLINE.
     No sorry-only proofs. Example: lean_check("example : 1+1=2 := by norm_num")"""
     if LEAN_DISABLED:
-        return "ERROR: lean_check is disabled via AI4MATH_LEAN_DISABLED."
+        return "ERROR: lean_check is disabled via AI4SCIENCE_LEAN_DISABLED."
 
     # Build request + URL per schema
     if LEAN_SCHEMA == "scilib":
@@ -418,7 +423,7 @@ def lean_check(code: str, timeout: int = 15) -> str:
 def lean_health() -> str:
     """Quick 5s probe of the Lean checker. Returns OK/OFFLINE/ERROR."""
     if LEAN_DISABLED:
-        return "Lean checker: disabled via AI4MATH_LEAN_DISABLED"
+        return "Lean checker: disabled via AI4SCIENCE_LEAN_DISABLED"
     last_err = None
     for attempt in (1, 2):
         try:
@@ -659,7 +664,7 @@ def _brave_search(query: str, num: int, api_key: str) -> list[dict]:
 def web_search(query: str, num_results: int = 5) -> str:
     """Web search (Brave or DuckDuckGo). Returns title/url/snippet."""
     if WEB_DISABLED:
-        return "ERROR: web_search is disabled via AI4MATH_WEB_DISABLED."
+        return "ERROR: web_search is disabled via AI4SCIENCE_WEB_DISABLED."
     key = os.environ.get("BRAVE_API_KEY")
     n = min(max(num_results, 1), MAX_RESULTS)
     try:
@@ -678,7 +683,7 @@ def web_search(query: str, num_results: int = 5) -> str:
 def web_fetch(url: str, max_chars: int = WEB_DEFAULT_MAX_CHARS) -> str:
     """Fetch URL, strip HTML, return text. Not for PDFs — use pdf_download."""
     if WEB_DISABLED:
-        return "ERROR: web_fetch is disabled via AI4MATH_WEB_DISABLED."
+        return "ERROR: web_fetch is disabled via AI4SCIENCE_WEB_DISABLED."
     try:
         r = requests.get(url, headers={"User-Agent": UA}, timeout=30)
         r.raise_for_status()
@@ -727,7 +732,7 @@ def _pdf_parse_pages(spec: str, total: int) -> list[int]:
 def pdf_download(url: str, dest_path: str = "literature/") -> str:
     """Download PDF from URL. dest_path ending with / → auto filename from URL."""
     if WEB_DISABLED:
-        return "ERROR: pdf_download is disabled via AI4MATH_WEB_DISABLED."
+        return "ERROR: pdf_download is disabled via AI4SCIENCE_WEB_DISABLED."
     try:
         r = requests.get(url, headers={"User-Agent": UA}, timeout=60, stream=True)
         r.raise_for_status()

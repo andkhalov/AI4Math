@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""AI4Math cross-platform setup.
+"""AI4Science setup — установка на Windows, macOS и Linux.
 
-Python-эквивалент `setup.sh` — работает на Linux, macOS и Windows.
-Делает то же самое:
-
-  1. Pre-flight check системных зависимостей (python3.10+, curl, git,
-     tar/bzip2 для Linux, libgomp1 для Linux slim-образов)
+  1. Проверка Python 3.10+ и системных зависимостей (git, curl; на Linux tar/bzip2/libgomp1)
   2. Создание .venv и pip install -r requirements.txt
-  3. Скачивание Goose CLI в .tools/ (Linux/macOS/Windows)
+  3. Скачивание Goose CLI закреплённой версии в .tools/
   4. Запуск cli/wizard.py (если .env не существует)
-  5. Опционально: scripts/install_lean.sh для Docker lean-checker
-  6. Для Linux/macOS: symlink ~/.local/bin/ai4math → bin/ai4math
+  5. Необязательно: локальный Lean checker в Docker (--with-lean-local, Linux/macOS)
+  6. Команда ai4science: symlink ~/.local/bin/ai4science (Linux/macOS)
+     или папка bin в пользовательском PATH (Windows)
+  7. Проверка: bin/ai4science doctor
 
 Использование:
-    python3 setup.py                # установка без Lean
-    python3 setup.py --with-lean    # + lean-checker Docker
-    python3 setup.py --help
+    python setup.py
+    python setup.py --skip-goose        без скачивания Goose
+    python setup.py --skip-doctor       без проверки в конце
+    python setup.py --no-path           Windows: не менять пользовательский PATH
+    python setup.py --with-lean-local   + локальный Lean checker (Docker)
 """
 from __future__ import annotations
 
@@ -29,7 +29,6 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-# Force UTF-8 on stdout/stderr for Windows — default cp1252 can't encode Cyrillic.
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
@@ -39,109 +38,87 @@ if sys.platform == "win32":
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
     os.environ.setdefault("PYTHONUTF8", "1")
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE
+REPO = Path(__file__).resolve().parent
 IS_WINDOWS = sys.platform == "win32"
 IS_MACOS = sys.platform == "darwin"
 IS_LINUX = sys.platform.startswith("linux")
+# Версия Goose закреплена: проверена с этим репозиторием (Windows/macOS/Linux).
+GOOSE_VERSION = "v1.50.0"
+GOOSE_RELEASE = os.environ.get(
+    "AI4SCIENCE_GOOSE_RELEASE",
+    f"https://github.com/aaif-goose/goose/releases/download/{GOOSE_VERSION}",
+)
 
-# Colors (ANSI, works on Linux/macOS and Win10+; old cmd without ANSI — just garbage)
-if sys.stdout.isatty() and not os.environ.get("AI4MATH_NOCOLOR"):
-    GREEN = "\033[0;32m"
-    YELLOW = "\033[0;33m"
-    RED = "\033[0;31m"
-    RESET = "\033[0m"
+if sys.stdout.isatty() and not os.environ.get("AI4SCIENCE_NOCOLOR"):
+    GREEN, YELLOW, RED, RESET = "\033[0;32m", "\033[0;33m", "\033[0;31m", "\033[0m"
 else:
     GREEN = YELLOW = RED = RESET = ""
 
 
 def say(msg: str) -> None:
-    print(f"{GREEN}[AI4Math]{RESET} {msg}")
+    print(f"{GREEN}[AI4Science]{RESET} {msg}", flush=True)
 
 
 def warn(msg: str) -> None:
-    print(f"{YELLOW}[AI4Math]{RESET} {msg}")
+    print(f"{YELLOW}[AI4Science]{RESET} {msg}", flush=True)
 
 
 def die(msg: str, code: int = 1) -> "NoReturn":  # noqa: F821
-    print(f"{RED}[AI4Math]{RESET} {msg}", file=sys.stderr)
+    print(f"{RED}[AI4Science]{RESET} {msg}", file=sys.stderr, flush=True)
     sys.exit(code)
 
 
 # ---------- pre-flight ----------
 
 def check_python_version() -> None:
-    v = sys.version_info
-    if (v.major, v.minor) < (3, 10):
+    if sys.version_info < (3, 10):
         die(f"Нужен Python 3.10+ (сейчас: {platform.python_version()})")
-    say(f"Python: {platform.python_version()}")
-
-
-def check_command(cmd: str) -> bool:
-    return shutil.which(cmd) is not None
+    say(f"Python: {platform.python_version()} ({sys.executable})")
 
 
 def check_system_deps() -> None:
-    """Checks OS-specific deps and prints install hints if missing."""
-    missing = []
-    for cmd in ("git", "curl"):
-        if not check_command(cmd):
-            missing.append(cmd)
+    missing = [c for c in ("git", "curl") if shutil.which(c) is None]
     if IS_LINUX:
-        # tar/bzip2 for Goose archive extraction
-        for cmd in ("tar", "bzip2"):
-            if not check_command(cmd):
-                missing.append(cmd)
-        # libgomp1 for Goose Rust binary
-        try:
-            ldconfig = subprocess.run(
-                ["ldconfig", "-p"], capture_output=True, text=True, timeout=5
-            )
-            if "libgomp.so.1" not in ldconfig.stdout:
-                missing.append("libgomp1")
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            # ldconfig not found — can't verify; warn but don't fail
-            warn("Не удалось проверить libgomp1 (ldconfig отсутствует). На Debian/Ubuntu: sudo apt-get install libgomp1")
+        missing += [c for c in ("tar", "bzip2") if shutil.which(c) is None]
+        found = any(Path(d, "libgomp.so.1").exists() for d in (
+            "/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib",
+            "/lib/x86_64-linux-gnu", "/lib/aarch64-linux-gnu", "/lib64", "/lib"))
+        if not found:
+            missing.append("libgomp1")
     if missing:
-        warn(f"Не хватает системных зависимостей: {' '.join(missing)}")
-        if IS_LINUX:
-            if check_command("apt-get"):
-                print(f"    Debian/Ubuntu: sudo apt-get install -y {' '.join(missing)}")
-            elif check_command("dnf"):
-                print(f"    Fedora/RHEL: sudo dnf install -y {' '.join(missing)}")
-            elif check_command("pacman"):
-                print(f"    Arch: sudo pacman -S {' '.join(missing)}")
+        warn(f"Не хватает: {' '.join(missing)}")
+        if IS_WINDOWS:
+            print("    Windows: git — https://git-scm.com/download/win или winget install -e --id Git.Git;")
+            print("             curl входит в Windows 10+")
         elif IS_MACOS:
             print(f"    macOS: brew install {' '.join(missing)}")
-        elif IS_WINDOWS:
-            print(f"    Windows: установи git и curl (https://git-scm.com / https://curl.se/windows)")
-        die("Доставь зависимости и запусти setup заново.")
+        else:
+            print(f"    Debian/Ubuntu: sudo apt-get install -y {' '.join(missing)}")
+        die("Установи зависимости и запусти setup заново.")
 
 
-# ---------- venv + pip ----------
+# ---------- venv ----------
+
+def venv_python() -> Path:
+    return REPO / ".venv" / ("Scripts" if IS_WINDOWS else "bin") / ("python.exe" if IS_WINDOWS else "python")
+
 
 def setup_venv() -> Path:
     venv = REPO / ".venv"
     if not venv.exists():
         say("Создаю .venv ...")
         subprocess.check_call([sys.executable, "-m", "venv", str(venv)])
-    # python inside venv
-    if IS_WINDOWS:
-        py = venv / "Scripts" / "python.exe"
-        pip = venv / "Scripts" / "pip.exe"
-    else:
-        py = venv / "bin" / "python"
-        pip = venv / "bin" / "pip"
+    py = venv_python()
     if not py.exists():
-        die(f".venv сломан — python не найден по пути {py}")
+        die(f".venv сломан — нет {py}. Удали папку .venv и запусти setup заново.")
     say("Устанавливаю зависимости из requirements.txt ...")
     subprocess.check_call([str(py), "-m", "pip", "install", "--quiet", "--upgrade", "pip"])
-    subprocess.check_call([str(pip), "install", "--quiet", "-r", str(REPO / "requirements.txt")])
+    subprocess.check_call([str(py), "-m", "pip", "install", "--quiet", "-r", str(REPO / "requirements.txt")])
     say("Зависимости установлены.")
     return py
 
 
-# ---------- Goose install ----------
+# ---------- goose ----------
 
 def _goose_asset_name() -> str:
     arch_raw = platform.machine().lower()
@@ -157,180 +134,200 @@ def _goose_asset_name() -> str:
         return f"goose-{arch}-apple-darwin.tar.bz2"
     if IS_WINDOWS:
         if arch != "x86_64":
-            die("Windows: Goose поставляется только для x86_64")
+            die("Windows: Goose доступен только для x86_64. Запасной путь — WSL2 (см. README).")
         return "goose-x86_64-pc-windows-msvc.zip"
     die(f"Неподдерживаемая ОС: {sys.platform}")
+
+
+def _goose_version(goose_exe: Path) -> str:
+    out = subprocess.check_output([str(goose_exe), "--version"], text=True, stderr=subprocess.STDOUT, timeout=20)
+    return out.strip().splitlines()[-1].strip()
 
 
 def install_goose() -> Path:
     tools_dir = REPO / ".tools"
     goose_exe = tools_dir / ("goose.exe" if IS_WINDOWS else "goose")
+    wanted = GOOSE_VERSION.lstrip("v")
     if goose_exe.exists():
         try:
-            out = subprocess.check_output([str(goose_exe), "--version"], text=True, stderr=subprocess.STDOUT)
-            say(f"Goose уже установлен: {out.strip()}")
-            return goose_exe
+            current = _goose_version(goose_exe)
+            if current == wanted or os.environ.get("AI4SCIENCE_GOOSE_RELEASE"):
+                say(f"Goose уже установлен: {current}")
+                return goose_exe
+            warn(f"Goose {current} отличается от закреплённой версии {wanted}. Обновляю ...")
         except Exception:
-            warn("Goose бинарь есть, но не запускается. Переустановка ...")
-            goose_exe.unlink()
-
+            warn("Goose есть, но не запускается. Переустановка ...")
+        goose_exe.unlink()
     tools_dir.mkdir(parents=True, exist_ok=True)
     asset = _goose_asset_name()
-    url = f"https://github.com/aaif-goose/goose/releases/download/stable/{asset}"
-    say(f"Скачиваю Goose: {asset}")
-    say(f"  URL: {url}")
-
-    with tempfile.TemporaryDirectory(prefix="ai4math-goose-") as td:
+    url = f"{GOOSE_RELEASE}/{asset}"
+    say(f"Скачиваю Goose: {url}")
+    with tempfile.TemporaryDirectory(prefix="ai4science-goose-") as td:
         td_path = Path(td)
         archive = td_path / asset
         try:
             urllib.request.urlretrieve(url, archive)
         except Exception as e:
             die(f"Не удалось скачать Goose: {e}")
-        say(f"  downloaded: {archive.stat().st_size} bytes")
-
-        say("Распаковываю ...")
+        say(f"  скачано: {archive.stat().st_size:,} байт")
         if asset.endswith(".tar.bz2"):
             import tarfile
             with tarfile.open(archive, "r:bz2") as tf:
                 tf.extractall(td_path)
-            src = td_path / "goose"
-            if not src.exists():
-                for p in td_path.rglob("goose"):
-                    if p.is_file():
-                        src = p
-                        break
-            if not src.exists():
-                die(f"Не нашёл goose binary в архиве (contents: {[p.name for p in td_path.rglob('*') if p.is_file()][:20]})")
+            src = next((p for p in td_path.rglob("goose") if p.is_file()), None)
+            if src is None:
+                die("goose не найден в архиве")
             shutil.move(str(src), str(goose_exe))
             goose_exe.chmod(0o755)
-        elif asset.endswith(".zip"):
+        else:
             import zipfile
             with zipfile.ZipFile(archive) as zf:
                 zf.extractall(td_path)
-            # Windows archive may be nested in goose-package/
-            all_files = sorted(p for p in td_path.rglob("*") if p.is_file())
-            say(f"  zip contents: {[p.relative_to(td_path).as_posix() for p in all_files[:20]]}")
-            candidates = [p for p in all_files if p.name.lower() == "goose.exe"]
-            if not candidates:
-                die(f"Не нашёл goose.exe в распакованном архиве. Files: {[p.name for p in all_files]}")
-            src = candidates[0]
-            say(f"  goose.exe found at: {src.relative_to(td_path)}")
+            src = next((p for p in td_path.rglob("*") if p.is_file() and p.name.lower() == "goose.exe"), None)
+            if src is None:
+                die("goose.exe не найден в архиве")
             shutil.move(str(src), str(goose_exe))
-            # Copy any bundled DLLs next to the exe
-            src_dir = src.parent
-            dll_count = 0
-            for dll in src_dir.glob("*.dll"):
+            for dll in src.parent.glob("*.dll"):
                 dest = tools_dir / dll.name
                 if not dest.exists():
                     shutil.move(str(dll), str(dest))
-                    dll_count += 1
-            if dll_count:
-                say(f"  moved {dll_count} bundled DLLs to .tools/")
-
-    # Verify
     try:
-        out = subprocess.check_output([str(goose_exe), "--version"], text=True, stderr=subprocess.STDOUT, timeout=10)
-        say(f"Goose: {out.strip()}")
-    except subprocess.CalledProcessError as e:
-        die(f"Goose установлен, но не запускается (rc={e.returncode}): {e.output}")
-    except FileNotFoundError as e:
-        die(f"Goose binary не найден после установки: {e}")
+        say(f"Goose: {_goose_version(goose_exe)}")
     except Exception as e:
         die(f"Goose установлен, но не запускается: {type(e).__name__}: {e}")
     return goose_exe
 
 
-# ---------- wizard + lean + symlink ----------
+# ---------- wizard, lean, command, doctor ----------
 
-def run_wizard(venv_py: Path) -> None:
+def run_wizard(py: Path) -> None:
     env_file = REPO / ".env"
     if env_file.exists():
-        warn(".env уже существует — пропускаю wizard. Удали .env и перезапусти setup чтобы переконфигурировать.")
+        warn(".env уже существует — wizard пропущен. Удали .env и перезапусти setup для перенастройки.")
         return
     say("Запускаю cli/wizard.py ...")
-    subprocess.check_call([str(venv_py), str(REPO / "cli" / "wizard.py")])
+    subprocess.check_call([str(py), str(REPO / "cli" / "wizard.py")])
 
 
-def install_lean() -> None:
-    script = REPO / "scripts" / "install_lean.sh"
+def install_lean_local() -> None:
     if IS_WINDOWS:
-        warn("Lean installer на Windows: запусти вручную через WSL2 или Docker Desktop + bash scripts/install_lean.sh")
+        warn("Локальный Lean checker на Windows: через WSL2 или Docker Desktop — bash scripts/install_lean.sh")
         return
-    say("Поднимаю lean-checker (Docker) ...")
-    try:
-        subprocess.check_call(["bash", str(script)])
-    except subprocess.CalledProcessError:
-        warn("lean-checker не поднялся. Детали выше.")
+    say("Поднимаю локальный Lean checker (Docker) ...")
+    rc = subprocess.call(["bash", str(REPO / "scripts" / "install_lean.sh")])
+    if rc != 0:
+        warn("Локальный Lean checker не поднялся. Агент продолжит работу с удалённым сервисом.")
 
 
 def create_symlink() -> None:
-    if IS_WINDOWS:
-        # Windows: пользователи запускают `python bin\ai4math.py` или `bin\ai4math.bat`
-        # Symlinks требуют привилегий, не делаем.
-        warn("Windows: для глобальной команды добавь %REPO%\\bin в PATH или используй bin\\ai4math.bat")
-        return
-    target = Path.home() / ".local" / "bin" / "ai4math"
-    src = REPO / "bin" / "ai4math"
-    if target.exists() or target.is_symlink():
-        return
+    target = Path.home() / ".local" / "bin" / "ai4science"
+    source = REPO / "bin" / "ai4science"
     target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_symlink():
+        if target.resolve() == source.resolve():
+            say(f"Команда ai4science: {target} (уже настроена)")
+            return
+        warn(f"{target} указывал на {target.resolve()} — переключаю на эту установку.")
+        target.unlink()
+    elif target.exists():
+        warn(f"{target} существует и не является symlink — команда не создана. Запуск: {source}")
+        return
     try:
-        target.symlink_to(src)
-        say(f"Создан symlink: {target} → {src}")
-        if str(target.parent) not in os.environ.get("PATH", "").split(os.pathsep):
-            warn(f"{target.parent} отсутствует в PATH. Добавь в ~/.bashrc или ~/.zshrc:")
-            print(f'    export PATH="{target.parent}:$PATH"')
+        target.symlink_to(source)
+        say(f"Команда ai4science: {target} → {source}")
     except OSError as e:
-        warn(f"Не удалось создать symlink: {e}")
+        warn(f"Symlink не создан: {e}. Запуск: {source}")
+        return
+    if str(target.parent) not in os.environ.get("PATH", "").split(os.pathsep):
+        warn(f"{target.parent} нет в PATH. Добавь в ~/.zshrc или ~/.bashrc: export PATH=\"{target.parent}:$PATH\"")
 
 
-# ---------- main ----------
+def add_bin_to_user_path() -> None:
+    """Windows: добавить <repo>\\bin в пользовательский PATH (без прав администратора)."""
+    bin_dir = str(REPO / "bin")
+    script = (
+        "$d = $env:AI4SCIENCE_BIN; "
+        "$p = [Environment]::GetEnvironmentVariable('Path', 'User'); "
+        "if (-not $p) { $p = '' }; "
+        "$parts = $p -split ';' | Where-Object { $_ -ne '' }; "
+        "if ($parts | Where-Object { $_.TrimEnd('\\') -ieq $d.TrimEnd('\\') }) { 'present' } "
+        "else { [Environment]::SetEnvironmentVariable('Path', (($parts + $d) -join ';'), 'User'); 'added' }"
+    )
+    env = os.environ.copy()
+    env["AI4SCIENCE_BIN"] = bin_dir
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            text=True, stderr=subprocess.STDOUT, env=env, timeout=60,
+        ).strip()
+    except Exception as e:
+        warn(f"PATH не изменён ({type(e).__name__}). Запуск: {bin_dir}\\ai4science.bat")
+        return
+    if out.endswith("added"):
+        say(f"Папка {bin_dir} добавлена в пользовательский PATH. Открой новый терминал и запускай: ai4science")
+    else:
+        say(f"Папка {bin_dir} уже есть в пользовательском PATH. Команда: ai4science")
+
+
+def run_doctor(py: Path) -> None:
+    say("Проверка: bin/ai4science doctor ...")
+    rc = subprocess.call([str(py), str(REPO / "bin" / "ai4science.py"), "doctor"])
+    if rc != 0:
+        die("doctor завершился с ошибкой — установка не завершена.", rc)
+
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="AI4Math cross-platform setup", add_help=True)
-    ap.add_argument(
-        "--with-lean-local",
-        dest="with_lean_local",
-        action="store_true",
-        help="Поднять локальный Docker lean-checker (по умолчанию используется remote SciLib)",
-    )
-    ap.add_argument("--with-lean", dest="with_lean_local", action="store_true", help=argparse.SUPPRESS)
+    ap = argparse.ArgumentParser(description="AI4Science setup")
+    ap.add_argument("--skip-goose", action="store_true", help="не скачивать Goose")
+    ap.add_argument("--skip-doctor", action="store_true", help="не запускать doctor в конце")
+    ap.add_argument("--no-path", action="store_true", help="Windows: не менять пользовательский PATH")
+    ap.add_argument("--with-lean-local", "--with-lean", dest="with_lean_local", action="store_true",
+                    help="поднять локальный Lean checker в Docker (Linux/macOS)")
     args = ap.parse_args()
 
-    say(f"=== AI4Math setup ({sys.platform}, {platform.python_version()}, {platform.machine()}) ===")
+    say(f"=== AI4Science setup ({sys.platform}, Python {platform.python_version()}, {platform.machine()}) ===")
     say(f"repo: {REPO}")
-    say("[step 1/6] check system deps")
+    say("[1/7] системные зависимости")
     check_system_deps()
-    say("[step 2/6] check python version")
+    say("[2/7] версия Python")
     check_python_version()
-    say("[step 3/6] create venv + install requirements")
-    venv_py = setup_venv()
-    say("[step 4/6] install Goose CLI")
-    install_goose()
-    say("[step 5/6] run wizard (or skip if .env exists)")
-    run_wizard(venv_py)
-    if args.with_lean_local:
-        install_lean()
+    say("[3/7] venv и зависимости")
+    py = setup_venv()
+    say(f"[4/7] Goose CLI ({GOOSE_VERSION})")
+    if args.skip_goose:
+        warn("пропущено (--skip-goose)")
     else:
-        warn("Локальный Lean checker не устанавливался (используется remote SciLib).")
-        warn("Чтобы добавить позже: ./scripts/install_lean.sh (Linux/macOS/WSL)")
-    say("[step 6/6] create symlink (POSIX only)")
-    create_symlink()
+        install_goose()
+    say("[5/7] .env (wizard)")
+    run_wizard(py)
+    say("[6/7] Lean checker")
+    if args.with_lean_local:
+        install_lean_local()
+    else:
+        say("используется удалённый сервис (LEAN_CHECKER_URL в .env)")
+    say("[7/7] команда ai4science и проверка")
+    if IS_WINDOWS:
+        if args.no_path:
+            warn(f"PATH не менялся (--no-path). Запуск: {REPO}\\bin\\ai4science.bat")
+        else:
+            add_bin_to_user_path()
+    else:
+        create_symlink()
+    if not args.skip_doctor:
+        run_doctor(py)
 
     print()
     say("Готово. Запуск:")
     if IS_WINDOWS:
-        print("    bin\\ai4math.bat                 интерактивная сессия")
-        print('    bin\\ai4math.bat run "промпт"    одна задача')
-        print("    bin\\ai4math.bat doctor          проверка окружения")
+        print("    ai4science                      интерактивная сессия (в новом терминале)")
+        print('    ai4science run "промпт"         одна задача')
+        print("    ai4science doctor               проверка окружения")
+        print(f"    без PATH: {REPO}\\bin\\ai4science.bat")
     else:
-        print("    ai4math                         интерактивная сессия")
-        print("    ai4math -m deepseek             выбор модели")
-        print('    ai4math run "промпт"            одна задача')
-        print("    ai4math doctor                  проверка окружения")
-    print()
-    print("Документация: README.md, docs/ARCHITECTURE.md, report/EXPERIMENT_REPORT.md")
+        print("    ai4science                      интерактивная сессия")
+        print('    ai4science run "промпт"         одна задача')
+        print("    ai4science doctor               проверка окружения")
+    print("\nДокументация: README.md, docs/ARCHITECTURE.md")
     return 0
 
 
@@ -342,15 +339,9 @@ if __name__ == "__main__":
         print()
         sys.exit(130)
     except subprocess.CalledProcessError as e:
-        print(f"{RED}[AI4Math]{RESET} subprocess failed:", file=sys.stderr)
-        print(f"  cmd: {e.cmd}", file=sys.stderr)
-        print(f"  returncode: {e.returncode}", file=sys.stderr)
-        if e.output:
-            print(f"  stdout: {e.output}", file=sys.stderr)
-        if e.stderr:
-            print(f"  stderr: {e.stderr}", file=sys.stderr)
+        print(f"{RED}[AI4Science]{RESET} команда завершилась с ошибкой: {e.cmd} (rc={e.returncode})", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f"{RED}[AI4Math]{RESET} unexpected error: {type(e).__name__}: {e}", file=sys.stderr)
+        print(f"{RED}[AI4Science]{RESET} ошибка: {type(e).__name__}: {e}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(2)

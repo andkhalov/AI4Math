@@ -13,197 +13,140 @@ concurrency:
 
 jobs:
   unit-tests:
-    name: Unit tests — pytest (MCP tools, no network)
-    runs-on: ubuntu-latest
+    name: Unit tests — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest
-
-      - name: Run pytest (unit + mocked, no network)
+      - name: Run pytest (no network)
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
         run: pytest tests/ -v --tb=short
 
-  linux:
-    name: Linux — clean-room install + Task A
-    runs-on: ubuntu-latest
+  install-smoke:
+    name: Install smoke — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     needs: unit-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install minimal deps (git + curl + python3-venv; setup.sh auto-installs the rest)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git curl python3-venv
-
-      - name: Write .env from secrets
-        env:
-          YANDEX_AI_API: ${{ secrets.YANDEX_AI_API }}
-          YANDEX_CLOUD_FOLDER: ${{ secrets.YANDEX_CLOUD_FOLDER }}
-        run: |
-          cat > .env <<ENV
-          YANDEX_AI_API=$YANDEX_AI_API
-          YANDEX_CLOUD_FOLDER=$YANDEX_CLOUD_FOLDER
-          YANDEX_QWEN=qwen3-235b-a22b-fp8/latest
-          YANDEX_DEEPSEEK=deepseek-v32/latest
-          YANDEX_GPTOOS=gpt-oss-120b/latest
-          AI4MATH_MODEL=qwen
-          LEAN_CHECKER_URL=https://scilibai.ru/grag
-          ENV
-
-      - name: Run setup.sh
-        run: ./setup.sh
-
-      - name: ai4math doctor
-        run: ./bin/ai4math doctor
-
-      - name: ai4math run — Task A (fibonacci)
-        env:
-          AI4MATH_QUIET: "1"
-          AI4MATH_NOCOLOR: "1"
-        run: |
-          mkdir -p /tmp/taskA && cd /tmp/taskA
-          $GITHUB_WORKSPACE/bin/ai4math run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
-          test -f hello.py
-          ACTUAL=$(python3 hello.py)
-          EXPECTED=$'0\n1\n1\n2\n3\n5\n8\n13\n21\n34'
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "FAIL: output mismatch"
-            echo "actual: $ACTUAL"
-            echo "expected: $EXPECTED"
-            exit 1
-          fi
-          echo "PASS"
-
-  macos:
-    name: macOS — setup + Task A
-    runs-on: macos-latest
-    needs: unit-tests
-    steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Write .env from secrets
-        env:
-          YANDEX_AI_API: ${{ secrets.YANDEX_AI_API }}
-          YANDEX_CLOUD_FOLDER: ${{ secrets.YANDEX_CLOUD_FOLDER }}
+      - name: Write placeholder .env (no real key needed for setup + doctor)
+        shell: bash
         run: |
-          cat > .env <<ENV
-          YANDEX_AI_API=$YANDEX_AI_API
-          YANDEX_CLOUD_FOLDER=$YANDEX_CLOUD_FOLDER
-          YANDEX_QWEN=qwen3-235b-a22b-fp8/latest
-          YANDEX_DEEPSEEK=deepseek-v32/latest
-          YANDEX_GPTOOS=gpt-oss-120b/latest
-          AI4MATH_MODEL=qwen
+          cat > .env <<'ENV'
+          YANDEX_CLOUD_API_KEY=placeholder-key-for-install-smoke-only
+          YANDEX_CLOUD_FOLDER=b1placeholder
+          YANDEX_CLOUD_MODEL=qwen3.6-35b-a3b/latest
           LEAN_CHECKER_URL=https://scilibai.ru/grag
           ENV
 
-      - name: Run setup.sh
+      - name: setup.sh (Linux / macOS)
+        if: runner.os != 'Windows'
         run: ./setup.sh
 
-      - name: ai4math doctor
-        run: ./bin/ai4math doctor
+      - name: setup.bat (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call setup.bat
 
-      - name: ai4math run — Task A (fibonacci)
-        env:
-          AI4MATH_QUIET: "1"
-          AI4MATH_NOCOLOR: "1"
-        run: |
-          mkdir -p /tmp/taskA && cd /tmp/taskA
-          $GITHUB_WORKSPACE/bin/ai4math run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
-          test -f hello.py
-          ACTUAL=$(python3 hello.py)
-          EXPECTED=$'0\n1\n1\n2\n3\n5\n8\n13\n21\n34'
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "FAIL: output mismatch"
-            echo "actual: $ACTUAL"
-            echo "expected: $EXPECTED"
-            exit 1
-          fi
-          echo "PASS"
+      - name: doctor (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: ./bin/ai4science doctor
 
-  windows:
-    name: Windows — setup.bat + Task A
-    runs-on: windows-latest
+      - name: doctor (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call bin\ai4science.bat doctor
+
+  e2e:
+    name: E2E Task A — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     needs: unit-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      - name: Check secrets
+        id: chk
+        shell: bash
+        env:
+          KEY: ${{ secrets.YANDEX_CLOUD_API_KEY || secrets.YANDEX_AI_API }}
+          FOLDER: ${{ secrets.YANDEX_CLOUD_FOLDER }}
+        run: |
+          if [ -n "$KEY" ] && [ -n "$FOLDER" ]; then
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::YANDEX_CLOUD_API_KEY (или YANDEX_AI_API) / YANDEX_CLOUD_FOLDER не заданы — e2e пропущен"
+          fi
+
       - name: Write .env from secrets
+        if: steps.chk.outputs.has == 'true'
+        shell: bash
         env:
-          YANDEX_AI_API: ${{ secrets.YANDEX_AI_API }}
-          YANDEX_CLOUD_FOLDER: ${{ secrets.YANDEX_CLOUD_FOLDER }}
-        shell: pwsh
+          KEY: ${{ secrets.YANDEX_CLOUD_API_KEY || secrets.YANDEX_AI_API }}
+          FOLDER: ${{ secrets.YANDEX_CLOUD_FOLDER }}
         run: |
-          @"
-          YANDEX_AI_API=$env:YANDEX_AI_API
-          YANDEX_CLOUD_FOLDER=$env:YANDEX_CLOUD_FOLDER
-          YANDEX_QWEN=qwen3-235b-a22b-fp8/latest
-          YANDEX_DEEPSEEK=deepseek-v32/latest
-          YANDEX_GPTOOS=gpt-oss-120b/latest
-          AI4MATH_MODEL=qwen
+          cat > .env <<ENV
+          YANDEX_CLOUD_API_KEY=$KEY
+          YANDEX_CLOUD_FOLDER=$FOLDER
+          YANDEX_CLOUD_MODEL=qwen3.6-35b-a3b/latest
           LEAN_CHECKER_URL=https://scilibai.ru/grag
-          "@ | Out-File -Encoding ASCII .env
+          ENV
 
-      - name: Show environment
-        shell: pwsh
+      - name: setup (Linux)
+        if: steps.chk.outputs.has == 'true' && runner.os == 'Linux'
+        run: ./setup.sh
+
+      - name: setup.bat (Windows)
+        if: steps.chk.outputs.has == 'true' && runner.os == 'Windows'
+        shell: cmd
+        run: call setup.bat --no-path
+
+      - name: ai4science run — Task A (Linux)
+        if: steps.chk.outputs.has == 'true' && runner.os == 'Linux'
+        env:
+          AI4SCIENCE_QUIET: "1"
+          AI4SCIENCE_NOCOLOR: "1"
         run: |
-          python --version
-          python -c "import sys; print('executable:', sys.executable); print('platform:', sys.platform); print('machine:', __import__('platform').machine())"
-          where git
-          where curl
-          where tar
-          Get-ChildItem env: | Where-Object { $_.Name -match "PYTHON|PATH" } | Format-Table -AutoSize
+          mkdir -p /tmp/taskA && cd /tmp/taskA
+          timeout 900 "$GITHUB_WORKSPACE/bin/ai4science" run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
+          python3 "$GITHUB_WORKSPACE/.github/scripts/check_fib.py" hello.py
 
-      - name: Run setup.py
+      - name: ai4science run — Task A (Windows)
+        if: steps.chk.outputs.has == 'true' && runner.os == 'Windows'
         shell: cmd
         env:
-          PYTHONIOENCODING: utf-8
-          PYTHONUTF8: "1"
-        run: python -u setup.py
-
-      - name: ai4math doctor
-        shell: cmd
-        env:
-          PYTHONIOENCODING: utf-8
-          PYTHONUTF8: "1"
-        run: call bin\ai4math.bat doctor
-
-      - name: ai4math run — Task A (fibonacci)
-        shell: cmd
-        env:
-          AI4MATH_QUIET: "1"
-          AI4MATH_NOCOLOR: "1"
+          AI4SCIENCE_QUIET: "1"
+          AI4SCIENCE_NOCOLOR: "1"
           PYTHONIOENCODING: utf-8
           PYTHONUTF8: "1"
         run: |
           mkdir C:\taskA 2>nul
           cd /d C:\taskA
-          call "%GITHUB_WORKSPACE%\bin\ai4math.bat" run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
-          if not exist hello.py (
-            echo FAIL: hello.py missing after ai4math run
-            dir
-            exit /b 1
-          )
-          echo === hello.py contents ===
-          type hello.py
-          echo === end hello.py ===
+          call "%GITHUB_WORKSPACE%\bin\ai4science.bat" run "Create a file hello.py that prints the first 10 Fibonacci numbers (0 1 1 2 3 5 8 13 21 34), one per line. After creating it, run it to verify it works."
           "%GITHUB_WORKSPACE%\.venv\Scripts\python.exe" "%GITHUB_WORKSPACE%\.github\scripts\check_fib.py" hello.py
-          if errorlevel 1 (
-            echo FAIL: output mismatch
-            exit /b 1
-          )
-          echo PASS

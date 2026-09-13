@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# AI4Math entrypoint — Linux / macOS shim. Forwards to bin/ai4math.py which
+# AI4Science entrypoint — Linux / macOS shim. Forwards to bin/ai4science.py which
 # holds the actual cross-platform logic. The legacy bash version is in
-# bin/_legacy/ai4math.bash.bak (kept as reference + manual fallback).
+# bin/_legacy/ai4science.bash.bak (kept as reference + manual fallback).
 if command -v readlink >/dev/null 2>&1 && readlink -f "${BASH_SOURCE[0]}" >/dev/null 2>&1; then
     SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 elif command -v greadlink >/dev/null 2>&1; then
@@ -18,4 +18,4 @@ fi
 REPO="$(cd "$(dirname "$SELF")/.." && pwd)"
 PY="$REPO/.venv/bin/python"
 [ -x "$PY" ] || PY="$(command -v python3 || command -v python)"
-exec "$PY" "$REPO/bin/ai4math.py" "$@"
+exec "$PY" "$REPO/bin/ai4science.py" "$@"
