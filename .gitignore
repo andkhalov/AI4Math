@@ -5,8 +5,9 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
-# Goose tooling
+# Goose tooling and data (sessions, logs; GOOSE_PATH_ROOT)
 .tools/
+.goose/
 .config/goose/
 
 # Temporary benchmark artifacts (experiment working dirs)

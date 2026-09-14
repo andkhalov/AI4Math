@@ -327,7 +327,9 @@ def main() -> int:
         print("    ai4science                      интерактивная сессия")
         print('    ai4science run "промпт"         одна задача')
         print("    ai4science doctor               проверка окружения")
-    print("\nДокументация: README.md, docs/ARCHITECTURE.md")
+    print("\nМодели: ai4science models; смена модели в сессии: /model <алиас>; все команды: /help")
+    print("Удаление: README.md, раздел «Удаление»")
+    print("Документация: README.md, docs/ARCHITECTURE.md")
     return 0
 
 

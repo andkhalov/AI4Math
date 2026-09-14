@@ -4,8 +4,12 @@ Sits on localhost, forwards all requests to the real Yandex endpoint,
 parses usage from responses (including SSE streaming), and blocks new
 requests when the daily budget is exceeded.
 
+A short model name in the request body (`alice`, `qwen235`,
+`aliceai-llm/latest`) is replaced by the full URI `gpt://<folder>/<slug>`,
+so `/model <alias>` works inside a Goose session.
+
 Usage (from bin/ai4science.py — auto-started, not user-facing):
-    python src/token_proxy.py [--port PORT] [--upstream URL] [--limit N]
+    python src/token_proxy.py [--port PORT] [--upstream URL] [--limit N] [--folder FOLDER]
 
 The proxy writes daily totals to ~/.ai4science_budget.json and reads it
 back on startup so budget survives process restarts.
@@ -23,6 +27,9 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ai4science_models import model_uri  # noqa: E402
+
 # Windows: консоль по умолчанию cp1252/cp866 — принудительно UTF-8 для кириллицы.
 if sys.platform == "win32":
     try:
@@ -39,6 +46,7 @@ for _k, _v in list(os.environ.items()):
 UPSTREAM = os.environ.get("AI4SCIENCE_UPSTREAM", "https://llm.api.cloud.yandex.net")
 DAILY_LIMIT = int(os.environ.get("AI4SCIENCE_DAILY_TOKEN_LIMIT", "3000000"))
 BUDGET_FILE = Path.home() / ".ai4science_budget.json"
+FOLDER = os.environ.get("YANDEX_CLOUD_FOLDER", "")
 
 _lock = threading.Lock()
 _today: str = ""
@@ -88,6 +96,27 @@ def _get_used() -> int:
         return _used
 
 
+def rewrite_model(body: bytes, folder: str) -> bytes:
+    """Короткое имя модели в JSON-запросе → полный URI `gpt://<folder>/<slug>`.
+    Запросы с полным URI, без поля model или не в JSON проходят без изменений."""
+    if not folder or not body:
+        return body
+    try:
+        data = json.loads(body)
+    except Exception:
+        return body
+    if not isinstance(data, dict):
+        return body
+    model = data.get("model")
+    if not isinstance(model, str) or not model.strip():
+        return body
+    uri = model_uri(folder, model)
+    if uri == model:
+        return body
+    data["model"] = uri
+    return json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+
 class ProxyHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
@@ -115,11 +144,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
         content_len = int(self.headers.get("Content-Length", 0))
         req_body = self.rfile.read(content_len) if content_len else b""
+        req_body = rewrite_model(req_body, FOLDER)
 
         url = f"{UPSTREAM}{self.path}"
+        # Content-Length пересчитывает urllib: после подстановки URI длина тела другая.
         headers = {
             k: v for k, v in self.headers.items()
-            if k.lower() not in ("host", "transfer-encoding")
+            if k.lower() not in ("host", "transfer-encoding", "content-length")
         }
 
         req = Request(url, data=req_body, headers=headers, method="POST")
@@ -185,17 +216,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    global UPSTREAM, DAILY_LIMIT
+    global UPSTREAM, DAILY_LIMIT, FOLDER
 
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument("--port", type=int, default=0)
     p.add_argument("--upstream", default=UPSTREAM)
     p.add_argument("--limit", type=int, default=DAILY_LIMIT)
+    p.add_argument("--folder", default=FOLDER)
     args = p.parse_args()
 
     UPSTREAM = args.upstream
     DAILY_LIMIT = args.limit
+    FOLDER = args.folder
 
     server = HTTPServer(("127.0.0.1", args.port), ProxyHandler)
     port = server.server_address[1]

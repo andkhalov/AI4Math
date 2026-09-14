@@ -17,7 +17,8 @@ AI4Science — открытая обёртка над агентом [Goose](htt
 
 Версия 2.0 заменяет AI4Math 1.x: команда `ai4science`, актуальные модели
 Yandex AI Studio, установка в Windows без WSL. Переход со старой версии — в
-разделе [«Обновление с AI4Math 1.x»](#обновление-с-ai4math-1x).
+разделе [«Обновление с AI4Math 1.x»](#обновление-с-ai4math-1x), удаление без
+следов в системе — в разделе [«Удаление»](#удаление).
 
 ---
 
@@ -96,6 +97,7 @@ export YANDEX_CLOUD_FOLDER=b1g...
 |---|---|
 | `ai4science` | интерактивная сессия |
 | `ai4science run "<промпт>"` | одна задача, вывод в консоль, выход |
+| `ai4science models` | модели, их алиасы и окна контекста |
 | `ai4science doctor` | проверка: ключ, Goose, `.venv`, MCP-сервер, Lean checker, бюджет |
 | `ai4science --help` | справка |
 
@@ -108,21 +110,57 @@ export YANDEX_CLOUD_FOLDER=b1g...
 | `--mode chat` | только диалог, без инструментов |
 | `--no-lean` | без инструментов Lean |
 
-Команды в сессии: `/plan <задача>` — план через модель планирования,
-`/mode <режим>` — смена режима, `/summary` — сжатие истории, `/exit` — выход.
+### Команды в сессии
+
+Вводятся в строке запроса. Полный список выводит `/help`.
+
+| Команда | Действие |
+|---|---|
+| `/model` | показать текущую модель |
+| `/model <алиас>` | сменить модель; история сессии сохраняется: `/model alice`, `/model qwen235` |
+| `/status` | модель, режим, расход токенов, заполнение контекста |
+| `/mode <режим>` | `auto`, `smart_approve`, `approve`, `chat` |
+| `/plan <задача>` | план через модель планирования (`YANDEX_PLANNER_MODEL`); `/endplan` — выход из режима плана |
+| `/compact` | сжать историю сессии |
+| `/clear` | очистить историю |
+| `/new` | новая сессия в том же процессе |
+| `/skills`, `/prompts` | навыки и промпты расширений |
+| `/r` | показывать параметры вызовов инструментов полностью |
+| `/exit` | выход; Ctrl+C на пустой строке — то же |
 
 ### Модели
 
-| Алиас | Модель Yandex AI Studio | Контекст | Назначение |
+| Алиас | Модель Yandex AI Studio | Окно контекста | Назначение |
 |---|---|---|---|
-| `qwen` | `qwen3.6-35b-a3b/latest` | 128k | модель по умолчанию |
+| `qwen` | `qwen3.6-35b-a3b/latest` | 256k | модель по умолчанию |
 | `qwen235` | `qwen3-235b-a22b-fp8/latest` | 256k | модель для `/plan`; точнее и дороже |
-| `deepseek` | `deepseek-v4-flash/latest` | 128k | альтернатива для сравнения |
+| `deepseek` | `deepseek-v4-flash/latest` | 1M | альтернатива для сравнения |
 | `gptoss` | `gpt-oss-120b/latest` | 128k | ответы без длинных цепочек инструментов |
 | `junior` | `gpt-oss-20b/latest` | 128k | экономия суточного лимита |
+| `alice` | `aliceai-llm/latest` | 128k | Alice AI LLM |
+| `alice-flash` | `aliceai-llm-flash/latest` | 64k | Alice AI LLM Flash, быстрая |
 
-Модель задаётся в `.env` (`YANDEX_CLOUD_MODEL`, `YANDEX_PLANNER_MODEL`) или
-флагом `-m`. Принимается и полный slug любой модели каталога.
+Окна контекста — по документации Yandex AI Studio; тот же список печатает
+`ai4science models`.
+
+### Смена модели
+
+- По умолчанию — `YANDEX_CLOUD_MODEL` в `.env`.
+- На одну сессию — флаг при запуске: `ai4science -m alice`.
+- Внутри сессии — `/model alice`. История сохраняется, следующий ответ даёт
+  новая модель; `/model` без аргумента показывает текущую.
+
+Принимаются алиас, slug (`aliceai-llm/latest`) и полный URI
+(`gpt://<folder>/aliceai-llm/latest`): локальный прокси подставляет folder id
+сам.
+
+- История сжимается при ~45k токенов для любой модели списка. После `/model`
+  Goose не пересчитывает окно контекста, поэтому история вместе с ответом
+  должна помещаться в самое короткое окно (64k у `alice-flash`). `/status`
+  показывает окно модели, с которой запущена сессия.
+- `/plan` всегда использует модель планирования `YANDEX_PLANNER_MODEL`.
+- `gptoss` и `junior` подходят для ответов без длинных цепочек вызовов
+  инструментов; при сбое вызова инструмента вернитесь к `/model qwen`.
 
 ### Переменные окружения
 
@@ -137,6 +175,8 @@ export YANDEX_CLOUD_FOLDER=b1g...
 | `AI4SCIENCE_LEAN_DISABLED=1`, `AI4SCIENCE_WEB_DISABLED=1` | отключить группы инструментов |
 | `AI4SCIENCE_SKILLS_DIR` | дополнительная папка со skills |
 | `GOOSE_CONTEXT_LIMIT`, `GOOSE_AUTO_COMPACT_THRESHOLD`, `GOOSE_MAX_TOKENS` | параметры Goose |
+| `GOOSE_PATH_ROOT` | папка данных Goose: сессии, журналы, история ввода (по умолчанию `.goose` в папке агента) |
+| `GOOSE_TELEMETRY_ENABLED` | анонимная статистика Goose (по умолчанию `false`) |
 
 ---
 
@@ -172,7 +212,8 @@ markdown, lean, literature, debug-loop), которые агент подгру�
 каждого ответа и записывает итог в `~/.ai4science_budget.json`. При
 исчерпании лимита новая сессия не запускается, текущая останавливается.
 Остаток показывают баннер, `ai4science doctor` и инструмент `token_budget`.
-Счётчик обнуляется в полночь по местному времени.
+Счётчик обнуляется в полночь по местному времени. Тот же прокси подставляет
+полный URI модели, если в запросе короткое имя.
 
 ---
 
@@ -195,15 +236,55 @@ rm -rf .venv .tools          # Windows: Remove-Item -Recurse -Force .venv, .tool
 
 ## Удаление
 
+Установщик меняет систему в трёх местах:
+
+| Что | Где |
+|---|---|
+| код, `.venv`, Goose (`.tools`), ключ (`.env`), сессии и журналы Goose (`.goose`), локальный Lean checker (`vendor/`) | папка агента, созданная `git clone` |
+| команда `ai4science` | macOS и Linux: symlink `~/.local/bin/ai4science`; Windows: папка `<агент>\bin` в пользовательской переменной PATH |
+| счётчик токенов | `~/.ai4science_budget.json` (Windows: `%USERPROFILE%\.ai4science_budget.json`) |
+
+Python, git и системные пакеты, поставленные для установки, не удаляются: ими
+пользуются и другие программы. Проекты, в которых работал агент, лежат в своих
+папках и не затрагиваются. Перед удалением сохраните нужное: `.env` содержит
+ключ, `.goose` — историю сессий.
+
+### macOS, Linux, WSL
+
 ```bash
-rm -f ~/.local/bin/ai4science
-rm -rf ~/AI4Math                  # папка репозитория: .venv, .tools, .env
-rm -f ~/.ai4science_budget.json
+cd AI4Math                       # папка агента
+# только если ставился локальный Lean checker (./setup.sh --with-lean-local):
+( cd vendor/lean-checker && docker compose down --rmi all --volumes )
+cd ..
+rm -rf AI4Math
+rm -f ~/.local/bin/ai4science ~/.ai4science_budget.json
 ```
 
-Windows: удалить папку репозитория, файл `%USERPROFILE%\.ai4science_budget.json`
-и строку `<репозиторий>\bin` из пользовательской переменной PATH.
-Конфигурация Goose: `~/.config/goose` (Windows: `%APPDATA%\goose`).
+Проверка в новом терминале: `command -v ai4science` ничего не выводит.
+
+### Windows (PowerShell)
+
+```powershell
+cd AI4Math                       # папка агента
+$d = (Resolve-Path .\bin).Path
+$p = [Environment]::GetEnvironmentVariable('Path', 'User')
+$rest = ($p -split ';') | Where-Object { $_ -and ($_.TrimEnd('\') -ine $d.TrimEnd('\')) }
+[Environment]::SetEnvironmentVariable('Path', ($rest -join ';'), 'User')
+cd ..
+Remove-Item -Recurse -Force AI4Math
+Remove-Item -Force "$env:USERPROFILE\.ai4science_budget.json" -ErrorAction SilentlyContinue
+```
+
+Проверка в новом терминале: `where.exe ai4science` сообщает, что файл не найден.
+
+### Следы AI4Math 1.x
+
+- Команда `~/.local/bin/ai4math`, файл `~/.ai4math_budget.json`, папка старой
+  установки.
+- Версия 1.x хранила сессии Goose в общих папках Goose: macOS и Linux —
+  `~/.config/goose`, `~/.local/share/goose`, `~/.local/state/goose`; Windows —
+  `%APPDATA%\Block\goose`. Эти папки используют все установки Goose на
+  компьютере: удаляйте их, только если Goose не используется отдельно.
 
 ---
 
@@ -235,14 +316,16 @@ AI4Math/
 │   └── ai4science-mcp[.bat]          запуск MCP-сервера
 ├── src/
 │   ├── ai4science_mcp.py             MCP-сервер с инструментами
-│   └── token_proxy.py                учёт токенов и суточный лимит
+│   ├── ai4science_models.py          каталог моделей: алиасы, окна контекста, URI
+│   └── token_proxy.py                учёт токенов, суточный лимит, полный URI модели
 ├── recipes/ai4science.yaml           системные инструкции агента и список расширений
 ├── cli/wizard.py                     мастер настройки .env
 ├── skills/                           руководства по темам
 ├── scripts/                          локальный Lean checker, проверка чистой установки в Docker
 ├── tests/                            модульные тесты
 ├── docs/ARCHITECTURE.md              устройство агента
-└── report/                           отчёт об экспериментах версии 1.x
+├── report/                           отчёт об экспериментах версии 1.x
+└── .goose/                           данные Goose: сессии, журналы (создаётся при запуске)
 ```
 
 ## Связанные проекты

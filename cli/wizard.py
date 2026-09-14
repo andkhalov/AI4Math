@@ -33,6 +33,8 @@ MODELS = [
     ("qwen3.6-35b-a3b/latest", "Qwen 3.6 35B A3B — быстрая, модель курса. Рекомендуется."),
     ("qwen3-235b-a22b-fp8/latest", "Qwen 3 235B — точнее, медленнее и дороже."),
     ("deepseek-v4-flash/latest", "DeepSeek V4 Flash — альтернатива для сравнения."),
+    ("aliceai-llm/latest", "Alice AI LLM — модель Яндекса."),
+    ("aliceai-llm-flash/latest", "Alice AI LLM Flash — быстрая, окно 64k."),
 ]
 
 

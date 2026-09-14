@@ -7,6 +7,19 @@ for the YSDA semester course «ИИ-ассистенты для исследов
 (natural sciences). The GitHub repository keeps its address
 `andkhalov/AI4Math`.
 
+### Added
+
+- Model switching inside a session by alias: `/model alice`,
+  `/model qwen235`. Goose passes the model name as typed; the token proxy
+  replaces a short name or slug with `gpt://<folder>/<slug>`.
+- Aliases `alice` (`aliceai-llm/latest`) and `alice-flash`
+  (`aliceai-llm-flash/latest`); command `ai4science models`; shared model
+  catalogue `src/ai4science_models.py` with context windows from the Yandex AI
+  Studio documentation (qwen 256k, deepseek 1M, gpt-oss and alice 128k,
+  alice-flash 64k).
+- README: in-session commands (`/model`, `/status`, `/compact`, …), model
+  switching, uninstall instructions for macOS, Linux, WSL and Windows.
+
 ### Breaking changes
 
 - Command `ai4math` → `ai4science` (`bin/ai4science`, `bin/ai4science.bat`,
@@ -37,6 +50,15 @@ for the YSDA semester course «ИИ-ассистенты для исследов
 
 ### Changed
 
+- Goose data (sessions, logs, input history) is stored in `<repo>/.goose`
+  (`GOOSE_PATH_ROOT`): removing the agent folder removes all agent data, and a
+  standalone Goose configuration is not touched. Goose telemetry is off by
+  default (`GOOSE_TELEMETRY_ENABLED=false`); the first-run consent prompt is
+  not shown.
+- History compaction at ~45k tokens for every model of the catalogue, so that
+  `/model` to a model with a smaller window does not overflow it.
+  `GOOSE_CONTEXT_LIMIT` follows the documented window of the start model.
+- In-session history compaction is `/compact` (`/summary` in the 1.x docs).
 - Goose pinned to `v1.50.0` (was the moving `stable` channel); `setup.py`
   reinstalls Goose when the local binary differs from the pinned version.
 - `setup.sh` checks system packages and delegates to `setup.py` (one

@@ -15,6 +15,7 @@
     ai4science --mode approve           режим подтверждения инструментов
     ai4science run "промпт"             одна задача и выход
     ai4science doctor                   проверка окружения
+    ai4science models                   модели и их алиасы
     ai4science --help                   справка
 """
 from __future__ import annotations
@@ -76,6 +77,11 @@ def die(msg: str, code: int = 1) -> "NoReturn":  # noqa: F821
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
+sys.path.insert(0, str(REPO / "src"))
+from ai4science_models import (  # noqa: E402  каталог моделей общий с src/token_proxy.py
+    CATALOG, COMPACT_AT_TOKENS, DEFAULT_CONTEXT, DEFAULT_MODEL, DEFAULT_PLANNER, MAX_OUTPUT_TOKENS,
+    MODEL_ALIASES, MODEL_CONTEXT, context_for, format_context, model_uri, resolve_model,
+)
 RECIPE_FILE = REPO / "recipes" / "ai4science.yaml"
 ENV_FILE = REPO / ".env"
 IS_WINDOWS = sys.platform == "win32"
@@ -83,28 +89,13 @@ GOOSE_BIN = REPO / ".tools" / ("goose.exe" if IS_WINDOWS else "goose")
 VENV_PY = REPO / ".venv" / ("Scripts" if IS_WINDOWS else "bin") / ("python.exe" if IS_WINDOWS else "python")
 
 YANDEX_HOST = "https://llm.api.cloud.yandex.net"
-DEFAULT_MODEL = "qwen3.6-35b-a3b/latest"
-DEFAULT_PLANNER = "qwen3-235b-a22b-fp8/latest"
-DEFAULT_CONTEXT = 128_000
-MODEL_CONTEXT = {
-    "qwen3-235b-a22b-fp8/latest": 256_000,
-}
+# Данные Goose (сессии, журналы, история ввода) — внутри папки агента:
+# удаление папки не оставляет следов, настройки отдельного Goose не затрагиваются.
+GOOSE_HOME = REPO / ".goose"
 DEFAULT_LEAN_URL = "https://scilibai.ru/grag"
 DAILY_TOKEN_LIMIT = int(os.environ.get("AI4SCIENCE_DAILY_TOKEN_LIMIT", "3000000"))
 VALID_GOOSE_MODES = {"auto", "smart_approve", "approve", "chat"}
 MIN_TOOLS = 10
-
-# Короткие имена моделей → slug Yandex AI Studio
-MODEL_ALIASES = {
-    "qwen": "qwen3.6-35b-a3b/latest",
-    "qwen35": "qwen3.6-35b-a3b/latest",
-    "qwen235": "qwen3-235b-a22b-fp8/latest",
-    "deepseek": "deepseek-v4-flash/latest",
-    "gptoss": "gpt-oss-120b/latest",
-    "gpt-oss": "gpt-oss-120b/latest",
-    "junior": "gpt-oss-20b/latest",
-}
-
 
 # ---------- .env ----------
 
@@ -136,19 +127,6 @@ def apply_env(env: dict[str, str]) -> None:
         os.environ["YANDEX_CLOUD_API_KEY"] = os.environ["YANDEX_AI_API"]
     if not os.environ.get("YANDEX_CLOUD_MODEL") and os.environ.get("AI4SCIENCE_MODEL"):
         os.environ["YANDEX_CLOUD_MODEL"] = os.environ["AI4SCIENCE_MODEL"]
-
-
-def resolve_model(raw: str) -> str:
-    raw = (raw or "").strip()
-    if not raw:
-        return DEFAULT_MODEL
-    if raw in MODEL_ALIASES:
-        return MODEL_ALIASES[raw]
-    return raw if "/" in raw else f"{raw}/latest"
-
-
-def context_for(model_slug: str) -> int:
-    return MODEL_CONTEXT.get(model_slug, DEFAULT_CONTEXT)
 
 
 # ---------- recipe ----------
@@ -272,11 +250,13 @@ def lean_status(url: str, timeout: float = 2.0) -> str:
 
 # ---------- banner / doctor / help ----------
 
-def banner(model_slug: str, context_limit: int, goose_mode: str, lean: str, tokens_used: int) -> None:
+def banner(model_slug: str, context_limit: int, goose_mode: str, lean: str, tokens_used: int,
+           compact_threshold: float = 0.8) -> None:
     if os.environ.get("AI4SCIENCE_QUIET") == "1":
         return
-    ctx_k = context_limit // 1000
-    threshold = float(os.environ.get("GOOSE_AUTO_COMPACT_THRESHOLD", "0.8"))
+    ctx = format_context(context_limit)
+    aliases = " ".join(alias for alias, *_ in CATALOG)
+    threshold = compact_threshold
     compact_at_k = int(context_limit * threshold) // 1000
     print(f"""
   ─── AI4Science ───────────────────────────────────────────────
@@ -284,13 +264,14 @@ def banner(model_slug: str, context_limit: int, goose_mode: str, lean: str, toke
     Инференс  →  Контекст  →  Верификация
   ─────────────────────────────────────────────────────────────
     Модель:    {model_slug} (Yandex AI Studio)
-    Контекст:  {ctx_k}k токенов, сжатие истории при {compact_at_k}k
+    Контекст:  {ctx} токенов, сжатие истории при {compact_at_k}k
     Режим:     {goose_mode}
     Lean 4:    {lean}
     Бюджет:    {tokens_used:,} / {DAILY_TOKEN_LIMIT:,} токенов сегодня
   ─────────────────────────────────────────────────────────────
     Курс ШАД «ИИ-ассистенты для исследователя. AI4Science»
-    Команды:  /plan <task>  /mode <name>  /summary  /exit  /help
+    Модель:    /model <алиас> — {aliases}
+    Команды:   /status  /mode <режим>  /plan <задача>  /compact  /help  /exit
 """)
 
 
@@ -307,6 +288,7 @@ def doctor() -> None:
     model = resolve_model(env.get("YANDEX_CLOUD_MODEL") or env.get("AI4SCIENCE_MODEL") or env.get("AI4MATH_MODEL", ""))
     print(f"модель: {model}")
     print(f"модель для /plan: {resolve_model(env.get('YANDEX_PLANNER_MODEL') or DEFAULT_PLANNER)}")
+    print(f"данные Goose (сессии, журналы): {os.environ.get('GOOSE_PATH_ROOT') or GOOSE_HOME}")
     print(f"ОС: {sys.platform}, Python {sys.version.split()[0]}")
     if GOOSE_BIN.exists():
         try:
@@ -342,6 +324,21 @@ def doctor() -> None:
     sys.exit(0 if mcp_ok else 2)
 
 
+def print_models(current: str = "") -> None:
+    print("Модели Yandex AI Studio: алиас, модель, окно контекста")
+    for alias, slug, ctx, note in CATALOG:
+        mark = "*" if slug == current else " "
+        print(f"  {mark} {alias:<12} {slug:<28} {format_context(ctx):>5}  {note}")
+    print(f"""
+  * модель по умолчанию из .env (YANDEX_CLOUD_MODEL)
+
+При запуске:  ai4science -m <алиас>      например: ai4science -m alice
+В сессии:     /model <алиас>             например: /model qwen235
+              /model                     текущая модель;  /status — модель, режим, контекст
+Принимаются также slug (aliceai-llm/latest) и полный URI (gpt://<folder>/...).
+История сжимается при ~{COMPACT_AT_TOKENS // 1000}k токенов для любой модели списка.""")
+
+
 def usage() -> None:
     print(f"""AI4Science — консольный агент курса ШАД «ИИ-ассистенты для исследователя. AI4Science».
 
@@ -349,6 +346,7 @@ def usage() -> None:
     ai4science [опции]               интерактивная сессия
     ai4science run "<промпт>"        одна задача, вывод в консоль, выход
     ai4science doctor                проверка окружения
+    ai4science models                модели и их алиасы
     ai4science --help                эта справка
 
 Опции:
@@ -359,7 +357,13 @@ def usage() -> None:
                               auto (по умолчанию в run), approve, chat
     --no-lean                 отключить инструменты Lean
 
-Slash-команды в сессии: /plan <task>, /mode <name>, /summary, /exit, /help
+Команды в сессии:
+    /model [алиас]     показать или сменить модель: /model alice, /model qwen235
+    /status            модель, режим, расход токенов, заполнение контекста
+    /mode <режим>      auto | smart_approve | approve | chat
+    /plan <задача>     план через модель планирования (YANDEX_PLANNER_MODEL)
+    /compact           сжать историю; /clear — очистить, /new — новая сессия
+    /help              все команды; /exit — выход
 
 Переменные окружения (.env):
     YANDEX_CLOUD_API_KEY, YANDEX_CLOUD_FOLDER, YANDEX_CLOUD_MODEL, YANDEX_PLANNER_MODEL
@@ -368,6 +372,7 @@ Slash-команды в сессии: /plan <task>, /mode <name>, /summary, /exi
     AI4SCIENCE_LEAN_DISABLED=1, AI4SCIENCE_WEB_DISABLED=1, AI4SCIENCE_SKILLS_DIR
     AI4SCIENCE_DAILY_TOKEN_LIMIT (по умолчанию 3 000 000)
     GOOSE_CONTEXT_LIMIT, GOOSE_MAX_TOKENS, GOOSE_AUTO_COMPACT_THRESHOLD
+    GOOSE_PATH_ROOT (данные Goose; по умолчанию <папка агента>/.goose)
 Переменные версии 1.x (AI4MATH_*, YANDEX_AI_API) принимаются как запасные.
 """)
 
@@ -408,6 +413,10 @@ def main(argv: list[str]) -> int:
         if a == "doctor":
             doctor()
             return 0
+        if a == "models":
+            env = load_env(ENV_FILE)
+            print_models(resolve_model(env.get("YANDEX_CLOUD_MODEL") or env.get("AI4SCIENCE_MODEL", "")))
+            return 0
         if a == "run":
             mode = "run"
             i += 1
@@ -443,8 +452,11 @@ def main(argv: list[str]) -> int:
         goose_env.setdefault("GOOSE_PLANNER_PROVIDER", "openai")
         goose_env.setdefault("GOOSE_PLANNER_MODEL", f"gpt://{folder}/{resolve_model(planner)}")
     goose_env["GOOSE_CONTEXT_LIMIT"] = str(context_limit)
-    goose_env.setdefault("GOOSE_AUTO_COMPACT_THRESHOLD", f"{min(0.8, 100_000 / context_limit):.2f}")
-    goose_env.setdefault("GOOSE_MAX_TOKENS", "16000")
+    # Одна точка сжатия для всех моделей каталога: после /model окно не пересчитывается.
+    goose_env.setdefault("GOOSE_AUTO_COMPACT_THRESHOLD", f"{min(0.8, COMPACT_AT_TOKENS / context_limit):.3f}")
+    goose_env.setdefault("GOOSE_MAX_TOKENS", str(MAX_OUTPUT_TOKENS))
+    goose_env.setdefault("GOOSE_PATH_ROOT", str(GOOSE_HOME))
+    goose_env.setdefault("GOOSE_TELEMETRY_ENABLED", "false")
     goose_env.setdefault("GOOSE_TEMPERATURE", "0.2")
     goose_env["GOOSE_MODE"] = goose_mode
     goose_env.setdefault("LEAN_CHECKER_URL", DEFAULT_LEAN_URL)
@@ -484,7 +496,8 @@ def main(argv: list[str]) -> int:
     proxy_py = REPO / "src" / "token_proxy.py"
     py_for_proxy = str(VENV_PY) if VENV_PY.exists() else sys.executable
     proxy_proc = subprocess.Popen(
-        [py_for_proxy, str(proxy_py), "--upstream", YANDEX_HOST, "--limit", str(DAILY_TOKEN_LIMIT)],
+        [py_for_proxy, str(proxy_py), "--upstream", YANDEX_HOST, "--limit", str(DAILY_TOKEN_LIMIT),
+         "--folder", folder],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     proxy_port_line = ""
@@ -497,7 +510,7 @@ def main(argv: list[str]) -> int:
     atexit.register(lambda: proxy_proc.terminate())
     goose_env["OPENAI_HOST"] = f"http://127.0.0.1:{proxy_port}"
 
-    banner(model_slug, context_limit, goose_mode, lean, used)
+    banner(model_slug, context_limit, goose_mode, lean, used, float(goose_env["GOOSE_AUTO_COMPACT_THRESHOLD"]))
 
     if not GOOSE_BIN.exists():
         die(f"goose не найден: {GOOSE_BIN}. Запусти setup заново.")

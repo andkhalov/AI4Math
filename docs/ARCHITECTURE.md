@@ -9,7 +9,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ 1. Пользователь                                                 │
-│    ai4science [session|run] [-m qwen|deepseek|gptoss] [args]       │
+│    ai4science [run|models|doctor] [-m <алиас>] [args]              │
 └──────────────────────────────┬──────────────────────────────────┘
                                │ bash / cmd
 ┌──────────────────────────────▼──────────────────────────────────┐
@@ -27,7 +27,7 @@
 │    - OpenAI-compatible client → Yandex AI Studio                │
 │    - tool_schemas для developer builtin + ai4science stdio         │
 │    - agent loop: message → tool_calls → tool_exec → message ... │
-│    - auto-compaction при GOOSE_AUTO_COMPACT_THRESHOLD (0.8)     │
+│    - auto-compaction: ~45k токенов для любой модели каталога    │
 └────────────┬──────────────────┬─────────────────────────────────┘
              │ HTTPS            │ stdio JSON-RPC (MCP)
              │                  │
@@ -68,13 +68,15 @@
 
 - Читает `.env` (stdlib-only, без python-dotenv, чтобы работать до установки зависимостей)
 - Выставляет `GOOSE_PROVIDER=openai`, `OPENAI_HOST`, `OPENAI_BASE_PATH`, `OPENAI_API_KEY`, `GOOSE_MODEL=gpt://<folder>/<slug>`
-- Per-model контекст: qwen3-235b 256k, остальные модели 128k (см. [EXPERIMENT_REPORT.md](../report/EXPERIMENT_REPORT.md) — «Context window probe»)
-- `GOOSE_AUTO_COMPACT_THRESHOLD=0.8` — auto-summarization при 80% заполнении окна
+- Каталог моделей — `src/ai4science_models.py`: алиасы, slug, окна контекста по документации Yandex AI Studio (qwen 256k, deepseek 1M, gpt-oss и alice 128k, alice-flash 64k); `GOOSE_CONTEXT_LIMIT` — окно стартовой модели
+- `GOOSE_AUTO_COMPACT_THRESHOLD` = `COMPACT_AT_TOKENS` / окно: сжатие истории при ~45k токенов для любой модели (после `/model` окно не пересчитывается)
+- `GOOSE_PATH_ROOT=<repo>/.goose` — сессии, журналы и история ввода Goose внутри папки агента; `GOOSE_TELEMETRY_ENABLED=false`
+- Поднимает `src/token_proxy.py`: учёт токенов, суточный лимит, замена короткого имени модели на `gpt://<folder>/<slug>`
 - Парсит recipe YAML:
   - `instructions` → tempfile → `GOOSE_SYSTEM_PROMPT_FILE_PATH` (env var, которую читает Goose)
   - `extensions` → list of `--with-builtin <name>` + `--with-extension "<env> <cmd> <args>"` флагов
 - `--no-profile` — игнорирует `~/.config/goose/` (чужие extensions)
-- Поддерживает `session`, `run`, `doctor`, `--help`, `--model`, `--no-lean`
+- Поддерживает `session`, `run`, `models`, `doctor`, `--help`, `--model`, `--no-lean`
 - На POSIX делает `os.execvp` для process replace, на Windows — `subprocess.run`
 
 ### 2. recipes/ai4science.yaml — Goose recipe
@@ -212,9 +214,9 @@ Project-specific skills can be added as additional `.md` files in the skills dir
 
 gpt-oss strippит префикс `developer__` с tool names, вызывает `text_editor` напрямую, MCP возвращает `-32002: Tool not found`, сессия закрывается. qwen и deepseek используют полные имена корректно. Рабочий обход: использовать gpt-oss только для one-shot ответов без tool-цепей. Полное исправление требует форка Goose или name-rewriting middleware.
 
-### Смена модели mid-session
+### Смена модели в сессии
 
-Goose не поддерживает. `/exit` + `ai4science -m <other>` — единственный путь.
+`/model <алиас>` (Goose 1.50). Goose передаёт имя модели как есть; `src/token_proxy.py` заменяет короткое имя или slug на `gpt://<folder>/<slug>`. Окно контекста и порог сжатия после смены не пересчитываются, поэтому точка сжатия выбрана по самому короткому окну каталога. Модель для `/plan` не меняется.
 
 ### SciLib sanity filter
 
@@ -234,15 +236,13 @@ Endpoint отвергает бесполезные подачи: `sorry`-only pr
 
 Pinned versions (актуально на момент последнего бенчмарка):
 
-- **Goose**: 1.30.0 (GitHub releases `aaif-goose/goose`)
+- **Goose**: 1.50.0 (GitHub releases `aaif-goose/goose`)
 - **Lean (SciLib default)**: 4.28.0-rc1 + Mathlib 4.26.0
 - **Lean (local fallback)**: 4.24.0 + Mathlib 4.24.0
 - **Yandex models**:
-  - `qwen3-235b-a22b-fp8/latest`
-  - `deepseek-v4-flash/latest`
-  - `gpt-oss-120b/latest`
+  - каталог — `ai4science models` и `src/ai4science_models.py`
 - **Python**: 3.10+ (минимум)
-- **MCP SDK**: `mcp>=0.9` (FastMCP API)
+- **MCP SDK**: `mcp>=1.0,<2` (FastMCP API)
 
 ---
 
@@ -254,7 +254,7 @@ RUST_LOG=debug ai4science run "..."        # verbose Goose лог
 curl https://scilibai.ru/grag/health   # remote Lean endpoint
 curl http://localhost:8888/health       # local Lean endpoint (если установлен)
 docker logs lean-checker-lean-server-1  # логи local Lean контейнера
-goose session list                      # список прошлых сессий
+GOOSE_PATH_ROOT="$PWD/.goose" .tools/goose session list   # сессии агента (из папки агента)
 ```
 
-Рабочие каталоги сессий — `~/.config/goose/sessions/` (POSIX) или `%APPDATA%\goose\sessions\` (Windows).
+Сессии, журналы и история ввода Goose — `.goose/` в папке агента (`GOOSE_PATH_ROOT`).
