@@ -27,10 +27,10 @@ def _body(**kw) -> bytes:
 
 
 @pytest.mark.parametrize("model, expected", [
-    ("alice", "gpt://b1f/aliceai-llm/latest"),
-    ("alice-flash", "gpt://b1f/aliceai-llm-flash/latest"),
     ("qwen235", "gpt://b1f/qwen3-235b-a22b-fp8/latest"),
-    ("aliceai-llm-flash/latest", "gpt://b1f/aliceai-llm-flash/latest"),
+    ("deepseek", "gpt://b1f/deepseek-v4-flash/latest"),
+    ("junior", "gpt://b1f/gpt-oss-20b/latest"),
+    ("deepseek-v4-flash/latest", "gpt://b1f/deepseek-v4-flash/latest"),
     ("gpt-oss-20b", "gpt://b1f/gpt-oss-20b/latest"),
 ])
 def test_rewrite_model_short_names(proxy, model, expected):
@@ -50,7 +50,7 @@ def test_rewrite_ignores_other_bodies(proxy, body):
 
 
 def test_rewrite_without_folder_is_noop(proxy):
-    body = _body(model="alice")
+    body = _body(model="deepseek")
     assert proxy.rewrite_model(body, "") == body
 
 
@@ -82,7 +82,7 @@ def test_proxy_forwards_rewritten_request(proxy, monkeypatch):
     try:
         req = Request(
             f"http://127.0.0.1:{server.server_address[1]}/v1/chat/completions",
-            data=_body(model="alice-flash", messages=[{"role": "user", "content": "длинный текст " * 20}]),
+            data=_body(model="junior", messages=[{"role": "user", "content": "длинный текст " * 20}]),
             headers={"Content-Type": "application/json", "Authorization": "Bearer test"},
             method="POST",
         )
@@ -91,7 +91,7 @@ def test_proxy_forwards_rewritten_request(proxy, monkeypatch):
         server.shutdown()
         upstream.shutdown()
     assert out["choices"][0]["message"]["content"] == "ok"
-    assert seen["body"]["model"] == "gpt://b1f/aliceai-llm-flash/latest"
+    assert seen["body"]["model"] == "gpt://b1f/gpt-oss-20b/latest"
     assert seen["path"] == "/v1/chat/completions"
     assert seen["auth"] == "Bearer test"
     assert proxy._get_used() == 7

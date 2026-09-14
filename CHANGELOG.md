@@ -9,14 +9,12 @@ for the YSDA semester course «ИИ-ассистенты для исследов
 
 ### Added
 
-- Model switching inside a session by alias: `/model alice`,
-  `/model qwen235`. Goose passes the model name as typed; the token proxy
+- Model switching inside a session by alias: `/model qwen235`,
+  `/model deepseek`. Goose passes the model name as typed; the token proxy
   replaces a short name or slug with `gpt://<folder>/<slug>`.
-- Aliases `alice` (`aliceai-llm/latest`) and `alice-flash`
-  (`aliceai-llm-flash/latest`); command `ai4science models`; shared model
-  catalogue `src/ai4science_models.py` with context windows from the Yandex AI
-  Studio documentation (qwen 256k, deepseek 1M, gpt-oss and alice 128k,
-  alice-flash 64k).
+- Command `ai4science models`; shared model catalogue
+  `src/ai4science_models.py` with context windows from the Yandex AI Studio
+  documentation (qwen 256k, deepseek 1M, gpt-oss 128k).
 - README: in-session commands (`/model`, `/status`, `/compact`, …), model
   switching, uninstall instructions for macOS, Linux, WSL and Windows.
 
@@ -55,10 +53,12 @@ for the YSDA semester course «ИИ-ассистенты для исследов
   standalone Goose configuration is not touched. Goose telemetry is off by
   default (`GOOSE_TELEMETRY_ENABLED=false`); the first-run consent prompt is
   not shown.
-- History compaction at ~45k tokens for every model of the catalogue, so that
-  `/model` to a model with a smaller window does not overflow it.
+- History compaction at ~100k tokens for every model of the catalogue, so
+  that `/model` to a model with a smaller window does not overflow it.
   `GOOSE_CONTEXT_LIMIT` follows the documented window of the start model.
 - In-session history compaction is `/compact` (`/summary` in the 1.x docs).
+- `goose --version` in `setup.py` and `doctor` also runs with
+  `GOOSE_PATH_ROOT`, so installation writes nothing to the shared Goose folders.
 - Goose pinned to `v1.50.0` (was the moving `stable` channel); `setup.py`
   reinstalls Goose when the local binary differs from the pinned version.
 - `setup.sh` checks system packages and delegates to `setup.py` (one

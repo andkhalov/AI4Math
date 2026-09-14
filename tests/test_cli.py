@@ -60,20 +60,18 @@ def test_resolve_model_aliases(cli):
 
 def test_context_for(cli):
     assert cli.context_for("qwen3-235b-a22b-fp8/latest") == 262_144
-    assert cli.context_for("aliceai-llm-flash/latest") == 65_536
+    assert cli.context_for("gpt-oss-20b/latest") == 131_072
     assert cli.context_for("unknown-model/latest") == cli.DEFAULT_CONTEXT
     assert cli.format_context(262_144) == "256k" and cli.format_context(1_048_576) == "1M"
 
 
 def test_model_aliases_and_uri(cli):
-    assert cli.resolve_model("alice") == "aliceai-llm/latest"
-    assert cli.resolve_model("alice-flash") == "aliceai-llm-flash/latest"
-    assert cli.model_uri("b1f", "alice") == "gpt://b1f/aliceai-llm/latest"
-    assert cli.model_uri("b1f", "aliceai-llm-flash/latest") == "gpt://b1f/aliceai-llm-flash/latest"
+    assert cli.resolve_model("junior") == "gpt-oss-20b/latest"
+    assert cli.model_uri("b1f", "deepseek") == "gpt://b1f/deepseek-v4-flash/latest"
+    assert cli.model_uri("b1f", "gpt-oss-20b/latest") == "gpt://b1f/gpt-oss-20b/latest"
     assert cli.model_uri("b1f", "gpt://b1x/qwen3.6-35b-a3b/latest") == "gpt://b1x/qwen3.6-35b-a3b/latest"
     for alias, slug, _, _ in cli.CATALOG:
         assert cli.resolve_model(alias) == slug
-
 
 def test_compaction_fits_smallest_window(cli):
     """После /model окно не пересчитывается: история + ответ помещаются в любое окно каталога."""
@@ -85,7 +83,7 @@ def test_models_command_lists_aliases():
     rc = subprocess.run([sys.executable, str(REPO / "bin" / "ai4science.py"), "models"],
                         capture_output=True, text=True, encoding="utf-8")
     assert rc.returncode == 0
-    for alias in ("qwen", "qwen235", "deepseek", "gptoss", "junior", "alice", "alice-flash"):
+    for alias in ("qwen", "qwen235", "deepseek", "gptoss", "junior"):
         assert alias in rc.stdout
     assert "/model" in rc.stdout
 

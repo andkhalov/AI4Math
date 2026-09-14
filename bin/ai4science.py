@@ -292,7 +292,10 @@ def doctor() -> None:
     print(f"ОС: {sys.platform}, Python {sys.version.split()[0]}")
     if GOOSE_BIN.exists():
         try:
-            out = subprocess.check_output([str(GOOSE_BIN), "--version"], text=True, stderr=subprocess.STDOUT, timeout=15)
+            # даже `goose --version` пишет журнал: держим его в папке агента
+            goose_env = dict(os.environ, GOOSE_PATH_ROOT=os.environ.get("GOOSE_PATH_ROOT") or str(GOOSE_HOME))
+            out = subprocess.check_output([str(GOOSE_BIN), "--version"], text=True, stderr=subprocess.STDOUT,
+                                          timeout=15, env=goose_env)
             print(f"goose: {out.strip().splitlines()[-1]}")
         except Exception as e:
             print(f"goose: ошибка запуска: {e}")
@@ -332,10 +335,10 @@ def print_models(current: str = "") -> None:
     print(f"""
   * модель по умолчанию из .env (YANDEX_CLOUD_MODEL)
 
-При запуске:  ai4science -m <алиас>      например: ai4science -m alice
-В сессии:     /model <алиас>             например: /model qwen235
+При запуске:  ai4science -m <алиас>      например: ai4science -m qwen235
+В сессии:     /model <алиас>             например: /model deepseek
               /model                     текущая модель;  /status — модель, режим, контекст
-Принимаются также slug (aliceai-llm/latest) и полный URI (gpt://<folder>/...).
+Принимаются также slug (deepseek-v4-flash/latest) и полный URI (gpt://<folder>/...).
 История сжимается при ~{COMPACT_AT_TOKENS // 1000}k токенов для любой модели списка.""")
 
 
@@ -358,7 +361,7 @@ def usage() -> None:
     --no-lean                 отключить инструменты Lean
 
 Команды в сессии:
-    /model [алиас]     показать или сменить модель: /model alice, /model qwen235
+    /model [алиас]     показать или сменить модель: /model qwen235, /model deepseek
     /status            модель, режим, расход токенов, заполнение контекста
     /mode <режим>      auto | smart_approve | approve | chat
     /plan <задача>     план через модель планирования (YANDEX_PLANNER_MODEL)

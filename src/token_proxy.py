@@ -4,8 +4,8 @@ Sits on localhost, forwards all requests to the real Yandex endpoint,
 parses usage from responses (including SSE streaming), and blocks new
 requests when the daily budget is exceeded.
 
-A short model name in the request body (`alice`, `qwen235`,
-`aliceai-llm/latest`) is replaced by the full URI `gpt://<folder>/<slug>`,
+A short model name in the request body (`qwen235`, `deepseek`,
+`deepseek-v4-flash/latest`) is replaced by the full URI `gpt://<folder>/<slug>`,
 so `/model <alias>` works inside a Goose session.
 
 Usage (from bin/ai4science.py — auto-started, not user-facing):

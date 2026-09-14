@@ -140,7 +140,9 @@ def _goose_asset_name() -> str:
 
 
 def _goose_version(goose_exe: Path) -> str:
-    out = subprocess.check_output([str(goose_exe), "--version"], text=True, stderr=subprocess.STDOUT, timeout=20)
+    # GOOSE_PATH_ROOT: даже `goose --version` пишет журнал; держим его в папке агента.
+    env = dict(os.environ, GOOSE_PATH_ROOT=str(REPO / ".goose"))
+    out = subprocess.check_output([str(goose_exe), "--version"], text=True, stderr=subprocess.STDOUT, timeout=20, env=env)
     return out.strip().splitlines()[-1].strip()
 
 

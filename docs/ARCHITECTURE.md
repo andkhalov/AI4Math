@@ -27,7 +27,7 @@
 │    - OpenAI-compatible client → Yandex AI Studio                │
 │    - tool_schemas для developer builtin + ai4science stdio         │
 │    - agent loop: message → tool_calls → tool_exec → message ... │
-│    - auto-compaction: ~45k токенов для любой модели каталога    │
+│    - auto-compaction: ~100k токенов для любой модели каталога   │
 └────────────┬──────────────────┬─────────────────────────────────┘
              │ HTTPS            │ stdio JSON-RPC (MCP)
              │                  │
@@ -68,8 +68,8 @@
 
 - Читает `.env` (stdlib-only, без python-dotenv, чтобы работать до установки зависимостей)
 - Выставляет `GOOSE_PROVIDER=openai`, `OPENAI_HOST`, `OPENAI_BASE_PATH`, `OPENAI_API_KEY`, `GOOSE_MODEL=gpt://<folder>/<slug>`
-- Каталог моделей — `src/ai4science_models.py`: алиасы, slug, окна контекста по документации Yandex AI Studio (qwen 256k, deepseek 1M, gpt-oss и alice 128k, alice-flash 64k); `GOOSE_CONTEXT_LIMIT` — окно стартовой модели
-- `GOOSE_AUTO_COMPACT_THRESHOLD` = `COMPACT_AT_TOKENS` / окно: сжатие истории при ~45k токенов для любой модели (после `/model` окно не пересчитывается)
+- Каталог моделей — `src/ai4science_models.py`: алиасы, slug, окна контекста по документации Yandex AI Studio (qwen 256k, deepseek 1M, gpt-oss 128k); `GOOSE_CONTEXT_LIMIT` — окно стартовой модели
+- `GOOSE_AUTO_COMPACT_THRESHOLD` = `COMPACT_AT_TOKENS` / окно: сжатие истории при ~100k токенов для любой модели (после `/model` окно не пересчитывается)
 - `GOOSE_PATH_ROOT=<repo>/.goose` — сессии, журналы и история ввода Goose внутри папки агента; `GOOSE_TELEMETRY_ENABLED=false`
 - Поднимает `src/token_proxy.py`: учёт токенов, суточный лимит, замена короткого имени модели на `gpt://<folder>/<slug>`
 - Парсит recipe YAML:
@@ -210,9 +210,9 @@ Project-specific skills can be added as additional `.md` files in the skills dir
 
 ## Ключевые ограничения
 
-### gpt-oss-120b несовместима с Goose namespacing
+### Вызов инструментов по моделям (проверка 2026-09-14, Goose 1.50)
 
-gpt-oss strippит префикс `developer__` с tool names, вызывает `text_editor` напрямую, MCP возвращает `-32002: Tool not found`, сессия закрывается. qwen и deepseek используют полные имена корректно. Рабочий обход: использовать gpt-oss только для one-shot ответов без tool-цепей. Полное исправление требует форка Goose или name-rewriting middleware.
+Задача «создать файл через инструмент» в `ai4science run`: `qwen`, `qwen235`, `deepseek`, `gptoss`, `junior` — файл создан. В Goose 1.30 gpt-oss отбрасывала префикс `developer__` в именах инструментов; в Goose 1.50 простой вызов проходит, длинные цепочки не проверялись.
 
 ### Смена модели в сессии
 
