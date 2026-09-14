@@ -57,8 +57,8 @@ echo [AI4Science] Установка в Windows не завершена.
 echo     Запасной путь: WSL2 с Ubuntu.
 echo       1. PowerShell от администратора: wsl --install -d Ubuntu
 echo       2. В терминале Ubuntu:
-echo          git clone https://github.com/andkhalov/AI4Math.git
-echo          cd AI4Math
+echo          git clone https://github.com/andkhalov/AI4Science.git
+echo          cd AI4Science
 echo          ./setup.sh
 endlocal
 exit /b 1

@@ -1,6 +1,6 @@
 # AI4Science
 
-![CI](https://github.com/andkhalov/AI4Math/actions/workflows/test.yml/badge.svg)
+![CI](https://github.com/andkhalov/AI4Science/actions/workflows/test.yml/badge.svg)
 ![Windows](https://img.shields.io/badge/Windows-10%2F11-brightgreen)
 ![macOS](https://img.shields.io/badge/macOS-supported-brightgreen)
 ![Linux](https://img.shields.io/badge/Linux-supported-brightgreen)
@@ -30,8 +30,8 @@ Yandex AI Studio, установка в Windows без WSL. Переход со 
 ### Windows 10/11
 
 ```powershell
-git clone https://github.com/andkhalov/AI4Math.git
-cd AI4Math
+git clone https://github.com/andkhalov/AI4Science.git
+cd AI4Science
 setup.bat
 ```
 
@@ -67,7 +67,7 @@ wsl --install -d Ubuntu
 ### macOS и Linux
 
 ```bash
-git clone https://github.com/andkhalov/AI4Math.git && cd AI4Math && ./setup.sh
+git clone https://github.com/andkhalov/AI4Science.git && cd AI4Science && ./setup.sh
 ```
 
 На Debian/Ubuntu `setup.sh` сам доставляет `bzip2`, `libgomp1` и
@@ -219,12 +219,15 @@ markdown, lean, literature, debug-loop), которые агент подгру�
 ## Обновление с AI4Math 1.x
 
 ```bash
-cd AI4Math
+cd AI4Math                   # папка установки 1.x
+git remote set-url origin https://github.com/andkhalov/AI4Science.git
 git pull
 rm -rf .venv .tools          # Windows: Remove-Item -Recurse -Force .venv, .tools
 ./setup.sh                   # Windows: setup.bat
 ```
 
+- Репозиторий переименован: `andkhalov/AI4Math` → `andkhalov/AI4Science`;
+  старый адрес перенаправляется на новый.
 - Команда `ai4math` заменена на `ai4science`. Старый symlink
   `~/.local/bin/ai4math` установщик не трогает; удалить его можно вручную.
 - `.env` версии 1.x продолжает работать: `YANDEX_AI_API` читается вместо
@@ -251,11 +254,11 @@ Python, git и системные пакеты, поставленные для 
 ### macOS, Linux, WSL
 
 ```bash
-cd AI4Math                       # папка агента
+cd AI4Science                    # папка агента
 # только если ставился локальный Lean checker (./setup.sh --with-lean-local):
 ( cd vendor/lean-checker && docker compose down --rmi all --volumes )
 cd ..
-rm -rf AI4Math
+rm -rf AI4Science
 rm -f ~/.local/bin/ai4science ~/.ai4science_budget.json
 ```
 
@@ -264,13 +267,13 @@ rm -f ~/.local/bin/ai4science ~/.ai4science_budget.json
 ### Windows (PowerShell)
 
 ```powershell
-cd AI4Math                       # папка агента
+cd AI4Science                    # папка агента
 $d = (Resolve-Path .\bin).Path
 $p = [Environment]::GetEnvironmentVariable('Path', 'User')
 $rest = ($p -split ';') | Where-Object { $_ -and ($_.TrimEnd('\') -ine $d.TrimEnd('\')) }
 [Environment]::SetEnvironmentVariable('Path', ($rest -join ';'), 'User')
 cd ..
-Remove-Item -Recurse -Force AI4Math
+Remove-Item -Recurse -Force AI4Science
 Remove-Item -Force "$env:USERPROFILE\.ai4science_budget.json" -ErrorAction SilentlyContinue
 ```
 
@@ -305,7 +308,7 @@ macOS; установка с нуля и `doctor` на всех трёх сис�
 ## Структура репозитория
 
 ```
-AI4Math/
+AI4Science/
 ├── setup.bat / setup.sh / setup.py   установка (Windows / Linux и macOS / общая логика)
 ├── requirements.txt                  зависимости Python
 ├── .env.example                      шаблон .env

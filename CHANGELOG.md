@@ -4,8 +4,8 @@
 
 **AI4Science** — second release. The agent is renamed from AI4Math and adapted
 for the YSDA semester course «ИИ-ассистенты для исследователя. AI4Science»
-(natural sciences). The GitHub repository keeps its address
-`andkhalov/AI4Math`.
+(natural sciences). The GitHub repository is renamed from
+`andkhalov/AI4Math` to `andkhalov/AI4Science`; the old address redirects.
 
 ### Added
 
